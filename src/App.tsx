@@ -1,5 +1,6 @@
 import { Toolbar } from "./components/Toolbar";
 import { Canvas } from "./components/Canvas";
+import { Inspector } from "./components/Inspector";
 
 export default function App() {
   return (
@@ -13,6 +14,9 @@ export default function App() {
       <div className="workspace">
         <Toolbar />
         <Canvas />
+        <div className="side">
+          <Inspector />
+        </div>
       </div>
     </div>
   );
