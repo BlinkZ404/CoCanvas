@@ -6,6 +6,8 @@ The page is the contract. You write the job in a brief. The agent drafts on the 
 
 Built for the [OpenAI WebMCP Challenge](https://webmcp.devpost.com).
 
+**Live:** https://cocanvas-weld.vercel.app
+
 ## Who it is for
 
 Product managers and workshop facilitators who map a checkout, onboarding, or support path on a board while an agent sits in the same room. Describing "move that box 40px and connect it to payment" in chat is the wrong interface. Pointing at the board is the right one.

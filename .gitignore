@@ -13,3 +13,5 @@ private/
 *.mov
 *.webm
 *.mkv
+
+.vercel
