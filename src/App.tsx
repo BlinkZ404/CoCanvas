@@ -1,12 +1,19 @@
+import { Toolbar } from "./components/Toolbar";
+import { Canvas } from "./components/Canvas";
+
 export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <h1>CoCanvas</h1>
+        <div className="brand">
+          <h1>CoCanvas</h1>
+          <p>Shared canvas</p>
+        </div>
       </header>
-      <main className="workspace">
-        <p>Vite and React are running. Next up is the canvas.</p>
-      </main>
+      <div className="workspace">
+        <Toolbar />
+        <Canvas />
+      </div>
     </div>
   );
 }
