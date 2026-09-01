@@ -3,6 +3,7 @@ import { useCanvasStore } from "../store/canvasStore";
 import type { Finding, ReviewReport } from "../review/reviewCanvas";
 import { SAMPLE_BRIEF } from "../webmcp/registerTools";
 import { resultToText, type ModelContextLike, type RegisteredTool } from "../webmcp/polyfill";
+import { CHATGPT_PROMPT } from "../guide";
 import { IconFlow, IconGap, IconKanban, IconLayout, IconNote, IconReview, IconSpark } from "./Icons";
 
 interface Props {
@@ -123,8 +124,19 @@ export function AgentConsole({ modelContext }: Props) {
   const [argText, setArgText] = useState<string>("{}");
   const [running, setRunning] = useState<string | null>(null);
   const [review, setReview] = useState<ReviewReport | null>(null);
+  const [copied, setCopied] = useState(false);
   const activity = useCanvasStore((s) => s.activity);
   const logRef = useRef<HTMLDivElement>(null);
+
+  async function copyPrompt() {
+    try {
+      await navigator.clipboard.writeText(CHATGPT_PROMPT);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   const refreshTools = useCallback(() => {
     if (!modelContext) return;
@@ -211,8 +223,12 @@ export function AgentConsole({ modelContext }: Props) {
         </span>
       </div>
       <p className="muted small agent-lead">
-        Same tools a real WebMCP agent calls. Start with Find the gap.
+        In ChatGPT desktop, open this page in the built-in browser until the header says Native.
+        Then paste the prompt. These buttons are a fallback that calls the same tools.
       </p>
+      <button type="button" className="guide-copy agent-copy" onClick={copyPrompt}>
+        {copied ? "Copied" : "Copy ChatGPT prompt"}
+      </button>
 
       <div className="agent-tasks">
         {AGENT_TASKS.map((task) => (

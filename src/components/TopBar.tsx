@@ -23,8 +23,8 @@ export function TopBar({ polyfilled, toolCount }: Props) {
           className={polyfilled ? "pill pill-warn" : "pill pill-live"}
           title={
             polyfilled
-              ? "No native WebMCP. Using the built-in polyfill."
-              : "Native WebMCP is available on this page."
+              ? "No native WebMCP on this tab. Open the page in ChatGPT desktop's built-in browser."
+              : "Native WebMCP is available. ChatGPT can call the page tools."
           }
         >
           <span className="status-dot" aria-hidden />

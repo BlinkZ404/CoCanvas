@@ -55,7 +55,25 @@ npm run dev
 
 Open http://localhost:5173
 
-Try **Find the gap** in the Agent panel. It sets a grocery-checkout brief, drafts an incomplete path, runs `review_canvas`, and pins the missing payment step.
+## Try it in ChatGPT
+
+Site tools only work in the **ChatGPT desktop** built-in browser.
+
+1. Update the ChatGPT desktop app. Use **GPT-5.6 Sol** or **GPT-5.6 Terra** (full, not Light). Luna has WebMCP off.
+2. Open the built-in browser from the ChatGPT toolbar (compass), not a Codex task preview and not chatgpt.com in Chrome.
+3. Go to https://cocanvas-beta.vercel.app
+4. The header pill should say **Native**. The address bar should show **Site tools**.
+5. Paste this prompt:
+
+```
+You are on CoCanvas. Call get_brief and get_canvas_summary first. If the brief is empty, set_brief to: Grocery checkout with cart review, delivery address, payment, and order success. Then draft_from_brief. Then review_canvas. If a step is missing, add it, connect it, and pin_element on the node that still needs work.
+```
+
+If the pill stays **Polyfill**, that tab has no `document.modelContext`. The in-page Agent buttons still work; they call the same tools through a polyfill.
+
+Chrome 149+ fallback: enable `chrome://flags/#enable-webmcp-testing`, relaunch, open the same URL.
+
+Try **Find the gap** in the Agent panel if you just want a scripted preview. It sets a grocery-checkout brief, drafts an incomplete path, runs `review_canvas`, and pins the missing payment step.
 
 ## Stack
 

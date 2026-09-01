@@ -95,7 +95,10 @@ export function Canvas() {
       {elements.length === 0 ? (
         <div className="empty-hint">
           <p>Write the job in the brief</p>
-          <p>Then let the agent draft the flow. You keep the mouse. Run Find the gap to see a review.</p>
+          <p>
+            Open this URL in ChatGPT&apos;s built-in browser until the header says Native, then paste
+            the prompt. Or run Find the gap on the right to preview the same tools.
+          </p>
         </div>
       ) : null}
 
