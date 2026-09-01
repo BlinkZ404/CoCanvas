@@ -12,7 +12,7 @@ export function TopBar({ polyfilled, toolCount }: Props) {
         <LogoMark />
         <div>
           <h1>CoCanvas</h1>
-          <p>Product flows, with your agent</p>
+          <p>{polyfilled ? "ChatGPT desktop, compass browser" : "Ask the chat to draft"}</p>
         </div>
       </div>
       <div className="topbar-status">

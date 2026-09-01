@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { TopBar } from "./components/TopBar";
-import { GuideBar } from "./components/GuideBar";
 import { Toolbar } from "./components/Toolbar";
 import { BriefBar } from "./components/BriefBar";
 import { Canvas } from "./components/Canvas";
@@ -12,7 +11,11 @@ export default function App() {
   const [reg, setReg] = useState<RegistrationInfo | null>(null);
 
   useEffect(() => {
-    setReg(registerCoCanvasTools());
+    try {
+      setReg(registerCoCanvasTools());
+    } catch {
+      setReg(null);
+    }
   }, []);
 
   // Robust scroll guard. Some browsers auto-scroll a freshly rendered element
@@ -44,7 +47,6 @@ export default function App() {
   return (
     <div className="app">
       <TopBar polyfilled={reg?.polyfilled ?? true} toolCount={reg?.toolNames.length ?? 0} />
-      <GuideBar polyfilled={reg?.polyfilled ?? true} />
       <div className="workspace">
         <Toolbar />
         <div className="canvas-col">

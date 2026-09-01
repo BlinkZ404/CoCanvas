@@ -572,10 +572,17 @@ export function registerCoCanvasTools(): RegistrationInfo {
   const defs = toolDefinitions();
 
   if (!registered) {
-    for (const def of defs) {
-      modelContext.registerTool(def);
-    }
     registered = true;
+    for (const def of defs) {
+      try {
+        const pending = modelContext.registerTool(def);
+        if (pending && typeof pending.then === "function") {
+          pending.catch(() => undefined);
+        }
+      } catch {
+        // Native hosts may reject a duplicate or a schema they do not like.
+      }
+    }
   }
 
   return {

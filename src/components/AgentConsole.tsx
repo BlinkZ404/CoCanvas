@@ -139,19 +139,28 @@ export function AgentConsole({ modelContext }: Props) {
   }
 
   const refreshTools = useCallback(() => {
-    if (!modelContext) return;
-    Promise.resolve(modelContext.getTools()).then((t) => {
-      setTools(t);
-      setSelectedTool((prev) => prev || t[0]?.name || "");
-    });
+    if (!modelContext || typeof modelContext.getTools !== "function") return;
+    Promise.resolve(modelContext.getTools())
+      .then((t) => {
+        const list = Array.isArray(t) ? t : [];
+        setTools(list);
+        setSelectedTool((prev) => prev || list[0]?.name || "");
+      })
+      .catch(() => {
+        setTools([]);
+      });
   }, [modelContext]);
 
   useEffect(() => {
     refreshTools();
-    if (!modelContext) return;
+    if (!modelContext || typeof modelContext.addEventListener !== "function") return;
     const handler = () => refreshTools();
     modelContext.addEventListener("toolchange", handler);
-    return () => modelContext.removeEventListener("toolchange", handler);
+    return () => {
+      if (typeof modelContext.removeEventListener === "function") {
+        modelContext.removeEventListener("toolchange", handler);
+      }
+    };
   }, [modelContext, refreshTools]);
 
   const runTool = useCallback(
@@ -222,12 +231,9 @@ export function AgentConsole({ modelContext }: Props) {
           {tools.length} tools
         </span>
       </div>
-      <p className="muted small agent-lead">
-        In ChatGPT desktop, open this page in the built-in browser until the header says Native.
-        Then paste the prompt. These buttons are a fallback that calls the same tools.
-      </p>
+      <p className="muted small agent-lead">Same tools ChatGPT calls when the header says Native.</p>
       <button type="button" className="guide-copy agent-copy" onClick={copyPrompt}>
-        {copied ? "Copied" : "Copy ChatGPT prompt"}
+        {copied ? "Copied" : "Copy prompt"}
       </button>
 
       <div className="agent-tasks">
