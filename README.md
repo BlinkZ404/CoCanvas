@@ -6,7 +6,7 @@ The page is the contract. You write the job in a brief. The agent drafts on the 
 
 Built for the [OpenAI WebMCP Challenge](https://webmcp.devpost.com).
 
-**Live:** https://cocanvas-weld.vercel.app
+**Live:** https://cocanvas-beta.vercel.app
 
 ## Who it is for
 
