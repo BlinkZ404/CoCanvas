@@ -3,6 +3,7 @@ import { TopBar } from "./components/TopBar";
 import { Toolbar } from "./components/Toolbar";
 import { Canvas } from "./components/Canvas";
 import { Inspector } from "./components/Inspector";
+import { AgentConsole } from "./components/AgentConsole";
 import { registerCoCanvasTools, type RegistrationInfo } from "./webmcp/registerTools";
 
 export default function App() {
@@ -12,6 +13,11 @@ export default function App() {
     setReg(registerCoCanvasTools());
   }, []);
 
+  // Robust scroll guard. Some browsers auto-scroll a freshly rendered element
+  // into view (e.g. after an agent builds a layout), which can shift the whole
+  // structural layout and push a design off-screen. This keeps the app shell,
+  // workspace, canvas, and document pinned to the origin, while leaving the
+  // side panel's own vertical scrolling untouched.
   useEffect(() => {
     const pinnedSelectors = [".app", ".workspace", ".canvas-surface"];
     const onScroll = (e: Event) => {
@@ -41,6 +47,7 @@ export default function App() {
         <Canvas />
         <div className="side">
           <Inspector />
+          <AgentConsole modelContext={reg?.modelContext ?? null} />
         </div>
       </div>
     </div>
