@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useCanvasStore } from "../store/canvasStore";
+import type { Finding, ReviewReport } from "../review/reviewCanvas";
+import { SAMPLE_BRIEF } from "../webmcp/registerTools";
 import { resultToText, type ModelContextLike, type RegisteredTool } from "../webmcp/polyfill";
-import { IconFlow, IconGrid, IconKanban, IconLayout, IconMoon, IconNote, IconSpark } from "./Icons";
+import { IconFlow, IconGap, IconKanban, IconLayout, IconNote, IconReview, IconSpark } from "./Icons";
 
 interface Props {
   modelContext: ModelContextLike | null;
@@ -18,15 +20,61 @@ interface CallLine {
 interface Step {
   tool: string;
   args?: Record<string, unknown>;
+  saveAs?: string;
+  from?: (saved: Record<string, string>) => Record<string, unknown>;
 }
 
-/**
- * Scripted "agent tasks" that drive the canvas purely through the WebMCP tool
- * surface (document.modelContext.executeTool). This is a stand-in for a real
- * agent so the human+agent collaboration is demonstrable in any browser; a real
- * WebMCP agent uses the exact same tools.
- */
 const AGENT_TASKS: { label: string; hint: string; icon: ReactNode; steps: Step[] }[] = [
+  {
+    label: "Find the gap",
+    hint: "Brief, draft, review, pin",
+    icon: <IconGap />,
+    steps: [
+      { tool: "set_brief", args: { brief: SAMPLE_BRIEF } },
+      { tool: "clear_canvas" },
+      {
+        tool: "add_element",
+        args: { kind: "text", x: 24, y: 28, width: 360, height: 28, text: "Grocery checkout", fill: "#1a1a1e", fontSize: 20 },
+      },
+      {
+        tool: "add_element",
+        saveAs: "cart",
+        args: { kind: "ellipse", x: 24, y: 120, width: 124, height: 76, text: "Cart review", fill: "#5a9e86", stroke: "#3f7a66", fontSize: 13 },
+      },
+      {
+        tool: "add_element",
+        saveAs: "addr",
+        args: { kind: "rectangle", x: 176, y: 126, width: 140, height: 64, text: "Delivery address", fill: "#5b7fb5", stroke: "#3f5d88", fontSize: 13 },
+      },
+      {
+        tool: "add_element",
+        saveAs: "success",
+        args: { kind: "ellipse", x: 348, y: 120, width: 124, height: 76, text: "Order success", fill: "#c46b5d", stroke: "#9a5248", fontSize: 13 },
+      },
+      { tool: "connect_elements", from: (s) => ({ from: s.cart, to: s.addr, label: "next" }) },
+      { tool: "connect_elements", from: (s) => ({ from: s.addr, to: s.success, label: "done" }) },
+      { tool: "review_canvas" },
+      {
+        tool: "pin_element",
+        from: (s) => ({
+          id: s.success,
+          note: "Payment is missing between address and success. Add that step before the order is complete.",
+        }),
+      },
+    ],
+  },
+  {
+    label: "Draft from brief",
+    hint: "Build the steps",
+    icon: <IconNote />,
+    steps: [{ tool: "draft_from_brief" }],
+  },
+  {
+    label: "Review board",
+    hint: "Check the brief",
+    icon: <IconReview />,
+    steps: [{ tool: "review_canvas" }],
+  },
   {
     label: "Login screen",
     hint: "Frame, fields, CTA",
@@ -49,33 +97,24 @@ const AGENT_TASKS: { label: string; hint: string; icon: ReactNode; steps: Step[]
     icon: <IconFlow />,
     steps: [{ tool: "clear_canvas" }, { tool: "create_layout", args: { template: "flowchart" } }],
   },
-  {
-    label: "Brainstorm",
-    hint: "Sticky notes",
-    icon: <IconNote />,
-    steps: [
-      { tool: "set_background", args: { color: "#f6f4ef" } },
-      { tool: "add_element", args: { kind: "sticky", x: 100, y: 100, text: "Idea: agent onboarding", fill: "#f3e4c6", stroke: "#d4b57a" } },
-      { tool: "add_element", args: { kind: "sticky", x: 320, y: 130, text: "Idea: shared cursors", fill: "#f0d6d0", stroke: "#d4a39a" } },
-      { tool: "add_element", args: { kind: "sticky", x: 200, y: 300, text: "Idea: tool marketplace", fill: "#d7e6d8", stroke: "#8fad93" } },
-      { tool: "arrange_grid", args: { columns: 3 } },
-    ],
-  },
-  {
-    label: "Tidy grid",
-    hint: "Auto-arrange",
-    icon: <IconGrid />,
-    steps: [{ tool: "arrange_grid", args: { columns: 3 } }],
-  },
-  {
-    label: "Dark canvas",
-    hint: "Ink background",
-    icon: <IconMoon />,
-    steps: [{ tool: "set_background", args: { color: "#12141a" } }],
-  },
 ];
 
 let lineId = 0;
+
+function parseCreatedId(text: string): string | null {
+  const m = text.match(/"id"\s*:\s*"([^"]+)"/);
+  return m?.[1] ?? null;
+}
+
+function parseReview(text: string): ReviewReport | null {
+  try {
+    const data = JSON.parse(text) as ReviewReport;
+    if (!data || !Array.isArray(data.findings)) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
 
 export function AgentConsole({ modelContext }: Props) {
   const [tools, setTools] = useState<RegisteredTool[]>([]);
@@ -83,6 +122,7 @@ export function AgentConsole({ modelContext }: Props) {
   const [selectedTool, setSelectedTool] = useState<string>("");
   const [argText, setArgText] = useState<string>("{}");
   const [running, setRunning] = useState<string | null>(null);
+  const [review, setReview] = useState<ReviewReport | null>(null);
   const activity = useCanvasStore((s) => s.activity);
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -104,19 +144,25 @@ export function AgentConsole({ modelContext }: Props) {
 
   const runTool = useCallback(
     async (tool: string, args: Record<string, unknown> | string) => {
-      if (!modelContext) return;
+      if (!modelContext) return "";
       const argStr = typeof args === "string" ? args : JSON.stringify(args);
       try {
         const result = await modelContext.executeTool(tool, argStr);
         const text = resultToText(result);
         lineId += 1;
         setLines((prev) => [...prev, { id: lineId, tool, args: argStr, result: text }]);
+        if (tool === "review_canvas") {
+          const parsed = parseReview(text);
+          if (parsed) setReview(parsed);
+        }
+        return text;
       } catch (err) {
         lineId += 1;
         setLines((prev) => [
           ...prev,
           { id: lineId, tool, args: argStr, result: String(err), error: true },
         ]);
+        return "";
       }
     },
     [modelContext]
@@ -126,9 +172,20 @@ export function AgentConsole({ modelContext }: Props) {
     async (label: string, steps: Step[]) => {
       if (!modelContext || running) return;
       setRunning(label);
-      for (const step of steps) {
-        await runTool(step.tool, step.args ?? {});
-        await new Promise((r) => setTimeout(r, 450));
+      const saved: Record<string, string> = {};
+      useCanvasStore.getState().beginAgentBatch();
+      try {
+        for (const step of steps) {
+          const args = step.from ? step.from(saved) : step.args ?? {};
+          const text = await runTool(step.tool, args);
+          if (step.saveAs) {
+            const id = parseCreatedId(text);
+            if (id) saved[step.saveAs] = id;
+          }
+          await new Promise((r) => setTimeout(r, 380));
+        }
+      } finally {
+        useCanvasStore.getState().endAgentBatch();
       }
       setRunning(null);
     },
@@ -154,7 +211,7 @@ export function AgentConsole({ modelContext }: Props) {
         </span>
       </div>
       <p className="muted small agent-lead">
-        Run a prompt to build on the canvas.
+        Same tools a real WebMCP agent calls. Start with Find the gap.
       </p>
 
       <div className="agent-tasks">
@@ -173,6 +230,8 @@ export function AgentConsole({ modelContext }: Props) {
           </button>
         ))}
       </div>
+
+      {review ? <ReviewFindings report={review} /> : null}
 
       <div className="log-block">
         <h3>Activity</h3>
@@ -232,5 +291,32 @@ export function AgentConsole({ modelContext }: Props) {
         </div>
       </details>
     </section>
+  );
+}
+
+function ReviewFindings({ report }: { report: ReviewReport }) {
+  return (
+    <div className="review-block">
+      <h3>Review</h3>
+      <p className="review-summary">{report.summary}</p>
+      {report.findings.length === 0 ? (
+        <p className="muted small">No findings.</p>
+      ) : (
+        <ul className="finding-list">
+          {report.findings.map((f) => (
+            <FindingRow key={f.id} finding={f} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function FindingRow({ finding }: { finding: Finding }) {
+  return (
+    <li className={`finding finding-${finding.severity}`}>
+      <span className="finding-code">{finding.code}</span>
+      <span>{finding.message}</span>
+    </li>
   );
 }

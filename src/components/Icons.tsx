@@ -124,6 +124,33 @@ export function IconMoon({ size = 16 }: IconProps) {
   );
 }
 
+export function IconUndo({ size = 18 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
+      <path d="M8 8H5.5v2.5M5.8 10.2A6.5 6.5 0 1 0 8 6.6" />
+    </svg>
+  );
+}
+
+export function IconReview({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
+      <path d="M6 7h12M6 12h8M6 17h5" />
+      <path d="M16.5 15.5l1.4 1.4 2.6-2.8" />
+    </svg>
+  );
+}
+
+export function IconGap({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
+      <circle cx="6.5" cy="12" r="2.25" />
+      <path d="M9.2 12h2.2M12.8 12h2" />
+      <circle cx="18.2" cy="12" r="2.25" />
+    </svg>
+  );
+}
+
 export function LogoMark() {
   return (
     <svg className="logo-mark" viewBox="0 0 32 32" aria-hidden>

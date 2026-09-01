@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { TopBar } from "./components/TopBar";
 import { Toolbar } from "./components/Toolbar";
+import { BriefBar } from "./components/BriefBar";
 import { Canvas } from "./components/Canvas";
 import { Inspector } from "./components/Inspector";
 import { AgentConsole } from "./components/AgentConsole";
@@ -44,7 +45,10 @@ export default function App() {
       <TopBar polyfilled={reg?.polyfilled ?? true} toolCount={reg?.toolNames.length ?? 0} />
       <div className="workspace">
         <Toolbar />
-        <Canvas />
+        <div className="canvas-col">
+          <BriefBar />
+          <Canvas />
+        </div>
         <div className="side">
           <Inspector />
           <AgentConsole modelContext={reg?.modelContext ?? null} />

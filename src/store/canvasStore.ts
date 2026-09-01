@@ -1,10 +1,17 @@
 import { create } from "zustand";
-import type { Activity, CanvasElement, Connector, ElementKind } from "../types";
+import type { Activity, CanvasElement, Connector, ElementKind, Pin } from "../types";
 
 let idCounter = 0;
 function nextId(prefix: string): string {
   idCounter += 1;
   return `${prefix}_${idCounter}`;
+}
+
+function adoptIds(ids: string[]) {
+  for (const id of ids) {
+    const m = id.match(/_(\d+)$/);
+    if (m) idCounter = Math.max(idCounter, Number(m[1]));
+  }
 }
 
 const PALETTE = [
@@ -18,12 +25,30 @@ const PALETTE = [
   "#5aa8a0",
 ];
 
+const STORAGE_KEY = "cocanvas.board.v1";
+
+interface Snapshot {
+  elements: CanvasElement[];
+  connectors: Connector[];
+  selectedId: string | null;
+  background: string;
+  brief: string;
+  pins: Pin[];
+}
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 export interface CanvasState {
   elements: CanvasElement[];
   connectors: Connector[];
   selectedId: string | null;
   background: string;
   activity: Activity[];
+  brief: string;
+  pins: Pin[];
+  agentUndoDepth: number;
   /** Bumped whenever the view should scroll back to the canvas origin. */
   resetViewNonce: number;
 
@@ -53,6 +78,13 @@ export interface CanvasState {
   ) => Connector | null;
   clearAll: (actor?: Activity["actor"]) => void;
   arrangeGrid: (columns: number, actor?: Activity["actor"]) => number;
+  setBrief: (brief: string, actor?: Activity["actor"]) => void;
+  addPin: (elementId: string, text: string, actor?: Activity["actor"]) => Pin | null;
+  resolvePin: (id: string, actor?: Activity["actor"]) => boolean;
+  beginAgentTurn: () => void;
+  beginAgentBatch: () => void;
+  endAgentBatch: () => void;
+  undoAgent: () => boolean;
   resetView: () => void;
   log: (actor: Activity["actor"], message: string) => void;
 }
@@ -72,12 +104,59 @@ function defaultsFor(kind: ElementKind): Omit<CanvasElement, "id" | "kind" | "z"
   }
 }
 
+const agentUndo: Snapshot[] = [];
+let agentShotThisTurn = false;
+let holdAgentTurn = false;
+
+function capture(s: Pick<CanvasState, keyof Snapshot>): Snapshot {
+  return clone({
+    elements: s.elements,
+    connectors: s.connectors,
+    selectedId: s.selectedId,
+    background: s.background,
+    brief: s.brief,
+    pins: s.pins,
+  });
+}
+
+function noteAgent(get: () => CanvasState, actor: Activity["actor"]) {
+  if (actor !== "agent" || agentShotThisTurn) return;
+  agentUndo.push(capture(get()));
+  if (agentUndo.length > 24) agentUndo.shift();
+  agentShotThisTurn = true;
+}
+
+function loadPersisted(): Partial<Snapshot> | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as Partial<Snapshot>;
+    if (!Array.isArray(data.elements)) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+const persisted = loadPersisted();
+if (persisted) {
+  adoptIds([
+    ...(persisted.elements ?? []).map((e) => e.id),
+    ...(persisted.connectors ?? []).map((c) => c.id),
+    ...(persisted.pins ?? []).map((p) => p.id),
+  ]);
+}
+
 export const useCanvasStore = create<CanvasState>((set, get) => ({
-  elements: [],
-  connectors: [],
-  selectedId: null,
-  background: "#f6f4ef",
+  elements: persisted?.elements ?? [],
+  connectors: persisted?.connectors ?? [],
+  selectedId: persisted?.selectedId ?? null,
+  background: persisted?.background ?? "#f6f4ef",
   activity: [],
+  brief: persisted?.brief ?? "",
+  pins: persisted?.pins ?? [],
+  agentUndoDepth: 0,
   resetViewNonce: 0,
 
   log: (actor, message) =>
@@ -88,7 +167,37 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       ].slice(0, 120),
     })),
 
+  beginAgentTurn: () => {
+    if (!holdAgentTurn) agentShotThisTurn = false;
+  },
+
+  beginAgentBatch: () => {
+    agentShotThisTurn = false;
+    holdAgentTurn = true;
+  },
+
+  endAgentBatch: () => {
+    holdAgentTurn = false;
+  },
+
+  undoAgent: () => {
+    const snap = agentUndo.pop();
+    if (!snap) return false;
+    set({
+      elements: snap.elements,
+      connectors: snap.connectors,
+      selectedId: snap.selectedId,
+      background: snap.background,
+      brief: snap.brief,
+      pins: snap.pins,
+      agentUndoDepth: agentUndo.length,
+    });
+    get().log("human", "undid the last agent change");
+    return true;
+  },
+
   addElement: (partial, actor = "human") => {
+    noteAgent(get, actor);
     const base = defaultsFor(partial.kind);
     const maxZ = get().elements.reduce((m, e) => Math.max(m, e.z), 0);
     const n = get().elements.length;
@@ -106,12 +215,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     ) {
       el.fill = PALETTE[get().elements.length % PALETTE.length];
     }
-    set((s) => ({ elements: [...s.elements, el], selectedId: el.id }));
+    set((s) => ({
+      elements: [...s.elements, el],
+      selectedId: el.id,
+      agentUndoDepth: agentUndo.length,
+    }));
     get().log(actor, `added ${el.kind}${el.text ? ` "${el.text}"` : ""} (${el.id})`);
     return el;
   },
 
   updateElement: (id, patch, actor = "human") => {
+    noteAgent(get, actor);
     let updated: CanvasElement | null = null;
     set((s) => ({
       elements: s.elements.map((e) => {
@@ -119,6 +233,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         updated = { ...e, ...patch, id: e.id, kind: e.kind };
         return updated;
       }),
+      agentUndoDepth: agentUndo.length,
     }));
     if (updated) {
       const keys = Object.keys(patch).join(", ");
@@ -134,10 +249,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   deleteElement: (id, actor = "human") => {
     const exists = get().elements.some((e) => e.id === id);
     if (!exists) return false;
+    noteAgent(get, actor);
     set((s) => ({
       elements: s.elements.filter((e) => e.id !== id),
       connectors: s.connectors.filter((c) => c.from !== id && c.to !== id),
+      pins: s.pins.filter((p) => p.elementId !== id),
       selectedId: s.selectedId === id ? null : s.selectedId,
+      agentUndoDepth: agentUndo.length,
     }));
     get().log(actor, `deleted ${id}`);
     return true;
@@ -149,7 +267,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   setBackground: (color, actor = "human") => {
-    set({ background: color });
+    noteAgent(get, actor);
+    set({ background: color, agentUndoDepth: agentUndo.length });
     get().log(actor, `set canvas background to ${color}`);
   },
 
@@ -158,18 +277,22 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     if (!els.some((e) => e.id === from) || !els.some((e) => e.id === to)) {
       return null;
     }
+    noteAgent(get, actor);
     const connector: Connector = { id: nextId("conn"), from, to, label };
-    set((s) => ({ connectors: [...s.connectors, connector] }));
+    set((s) => ({ connectors: [...s.connectors, connector], agentUndoDepth: agentUndo.length }));
     get().log(actor, `connected ${from} to ${to}`);
     return connector;
   },
 
   clearAll: (actor = "human") => {
+    noteAgent(get, actor);
     set((s) => ({
       elements: [],
       connectors: [],
+      pins: [],
       selectedId: null,
       resetViewNonce: s.resetViewNonce + 1,
+      agentUndoDepth: agentUndo.length,
     }));
     get().log(actor, "cleared the canvas");
   },
@@ -177,6 +300,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   resetView: () => set((s) => ({ resetViewNonce: s.resetViewNonce + 1 })),
 
   arrangeGrid: (columns, actor = "human") => {
+    noteAgent(get, actor);
     const cols = Math.max(1, Math.floor(columns));
     const gap = 32;
     const startX = 80;
@@ -192,8 +316,62 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         const row = Math.floor(i / cols);
         return { ...e, x: startX + col * colWidth, y: startY + row * rowHeight };
       }),
+      agentUndoDepth: agentUndo.length,
     }));
     get().log(actor, `arranged ${count} elements into a ${cols}-column grid`);
     return count;
   },
+
+  setBrief: (brief, actor = "human") => {
+    noteAgent(get, actor);
+    set({ brief, agentUndoDepth: agentUndo.length });
+    get().log(actor, brief.trim() ? "updated the brief" : "cleared the brief");
+  },
+
+  addPin: (elementId, text, actor = "human") => {
+    if (!get().elements.some((e) => e.id === elementId)) return null;
+    noteAgent(get, actor);
+    const pin: Pin = {
+      id: nextId("pin"),
+      elementId,
+      actor,
+      text: text.trim() || "Look here",
+      resolved: false,
+    };
+    set((s) => ({ pins: [...s.pins, pin], selectedId: elementId, agentUndoDepth: agentUndo.length }));
+    get().log(actor, `pinned ${elementId}: ${pin.text}`);
+    return pin;
+  },
+
+  resolvePin: (id, actor = "human") => {
+    const pin = get().pins.find((p) => p.id === id);
+    if (!pin || pin.resolved) return false;
+    noteAgent(get, actor);
+    set((s) => ({
+      pins: s.pins.map((p) => (p.id === id ? { ...p, resolved: true } : p)),
+      agentUndoDepth: agentUndo.length,
+    }));
+    get().log(actor, `resolved pin ${id}`);
+    return true;
+  },
 }));
+
+if (typeof localStorage !== "undefined") {
+  useCanvasStore.subscribe((s) => {
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          elements: s.elements,
+          connectors: s.connectors,
+          selectedId: s.selectedId,
+          background: s.background,
+          brief: s.brief,
+          pins: s.pins,
+        })
+      );
+    } catch {
+      // Quota or private mode. The live board still works.
+    }
+  });
+}

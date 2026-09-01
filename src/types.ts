@@ -33,3 +33,12 @@ export interface Activity {
   message: string;
   at: number;
 }
+
+/** A critique pinned to an element. Human and agent share the same pins. */
+export interface Pin {
+  id: string;
+  elementId: string;
+  actor: "human" | "agent";
+  text: string;
+  resolved: boolean;
+}

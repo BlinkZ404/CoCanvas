@@ -142,10 +142,31 @@ export function Inspector() {
         </label>
       )}
 
+      <SelectedPins elementId={element.id} />
+
       <button className="btn-ghost-danger" onClick={() => deleteElement(element.id, "human")}>
         Delete
       </button>
     </section>
+  );
+}
+
+function SelectedPins({ elementId }: { elementId: string }) {
+  const pins = useCanvasStore((s) => s.pins.filter((p) => p.elementId === elementId && !p.resolved));
+  const resolvePin = useCanvasStore((s) => s.resolvePin);
+  if (pins.length === 0) return null;
+  return (
+    <div className="pin-list">
+      <h3 className="field-label">Pins</h3>
+      {pins.map((pin) => (
+        <div key={pin.id} className="pin-row">
+          <p>{pin.text}</p>
+          <button type="button" className="pin-resolve" onClick={() => resolvePin(pin.id, "human")}>
+            Resolve
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 

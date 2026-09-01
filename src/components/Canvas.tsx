@@ -94,8 +94,8 @@ export function Canvas() {
 
       {elements.length === 0 ? (
         <div className="empty-hint">
-          <p>Empty canvas</p>
-          <p>Add a shape from the left, or run an agent prompt on the right.</p>
+          <p>Write the job in the brief</p>
+          <p>Then let the agent draft the flow. You keep the mouse. Run Find the gap to see a review.</p>
         </div>
       ) : null}
 

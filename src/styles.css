@@ -162,6 +162,42 @@ summary:focus-visible {
   overflow: hidden;
 }
 
+.canvas-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.brief-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.brief-label {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.brief-bar input {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
 /* Toolbar */
 .toolbar {
   background: var(--panel);
@@ -203,9 +239,14 @@ summary:focus-visible {
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-.tool-btn:hover {
+.tool-btn:hover:not(:disabled) {
   background: var(--panel-2);
   border-color: var(--border-strong);
+}
+
+.tool-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .tool-icon {
@@ -261,6 +302,7 @@ summary:focus-visible {
   position: relative;
   overflow: hidden;
   min-height: 0;
+  flex: 1;
 }
 
 .canvas-grid {
@@ -337,6 +379,25 @@ summary:focus-visible {
   align-items: center;
   justify-content: center;
   box-shadow: var(--shadow-el);
+  overflow: visible;
+}
+
+.el-pin {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #c46b5d;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  z-index: 2;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
 }
 
 .el:active {
@@ -619,6 +680,97 @@ summary:focus-visible {
 
 .swatch.is-active {
   box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+}
+
+.pin-list {
+  margin: 8px 0 4px;
+}
+
+.pin-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px;
+  margin-bottom: 6px;
+  background: rgba(196, 107, 93, 0.1);
+  border: 1px solid rgba(196, 107, 93, 0.28);
+  border-radius: 9px;
+}
+
+.pin-row p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #f0d2cd;
+}
+
+.pin-resolve {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 4px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.review-block {
+  margin: 0 0 12px;
+}
+
+.review-block h3 {
+  margin: 0 0 8px;
+}
+
+.review-summary {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #d8d5ce;
+}
+
+.finding-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.finding {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border-left: 2px solid var(--muted);
+  background: var(--panel-2);
+  font-size: 12px;
+  line-height: 1.4;
+  color: #d8d5ce;
+}
+
+.finding-error {
+  border-left-color: var(--danger);
+}
+
+.finding-warn {
+  border-left-color: var(--warn);
+}
+
+.finding-info {
+  border-left-color: var(--agent);
+}
+
+.finding-code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: lowercase;
 }
 
 .btn-danger,

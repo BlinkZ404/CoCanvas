@@ -12,6 +12,9 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
   const select = useCanvasStore((s) => s.select);
   const moveElement = useCanvasStore((s) => s.moveElement);
   const updateElement = useCanvasStore((s) => s.updateElement);
+  const pinCount = useCanvasStore(
+    (s) => s.pins.filter((p) => p.elementId === element.id && !p.resolved).length
+  );
   const dragState = useRef<{ dx: number; dy: number } | null>(null);
 
   const selected = selectedId === element.id;
@@ -68,6 +71,13 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
     </div>
   ) : null;
 
+  const pinBadge =
+    pinCount > 0 ? (
+      <span className="el-pin" title={`${pinCount} open pin${pinCount === 1 ? "" : "s"}`}>
+        {pinCount}
+      </span>
+    ) : null;
+
   if (element.kind === "frame") {
     return (
       <div
@@ -76,6 +86,7 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
         onMouseDown={onMouseDown}
       >
         {handles}
+        {pinBadge}
         <div className="frame-title" contentEditable suppressContentEditableWarning onInput={onTextInput}>
           {element.text}
         </div>
@@ -91,6 +102,7 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
         onMouseDown={onMouseDown}
       >
         {handles}
+        {pinBadge}
         <div contentEditable suppressContentEditableWarning onInput={onTextInput} className="text-body">
           {element.text}
         </div>
@@ -111,6 +123,7 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
         onMouseDown={onMouseDown}
       >
         {handles}
+        {pinBadge}
         <div contentEditable suppressContentEditableWarning onInput={onTextInput} className="sticky-body">
           {element.text}
         </div>
@@ -132,6 +145,7 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
       onMouseDown={onMouseDown}
     >
       {handles}
+      {pinBadge}
       {editable ? null : <span className="shape-label">{element.text}</span>}
     </div>
   );

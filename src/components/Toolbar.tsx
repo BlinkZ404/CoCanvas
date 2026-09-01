@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import { useCanvasStore } from "../store/canvasStore";
 import type { ElementKind } from "../types";
-import { IconEllipse, IconFrame, IconRect, IconSticky, IconText, IconTrash } from "./Icons";
+import { IconEllipse, IconFrame, IconRect, IconSticky, IconText, IconTrash, IconUndo } from "./Icons";
 
 const TOOLS: { kind: ElementKind; label: string; Icon: ComponentType }[] = [
   { kind: "frame", label: "Frame", Icon: IconFrame },
@@ -14,6 +14,8 @@ const TOOLS: { kind: ElementKind; label: string; Icon: ComponentType }[] = [
 export function Toolbar() {
   const addElement = useCanvasStore((s) => s.addElement);
   const clearAll = useCanvasStore((s) => s.clearAll);
+  const undoAgent = useCanvasStore((s) => s.undoAgent);
+  const agentUndoDepth = useCanvasStore((s) => s.agentUndoDepth);
   const [confirmClear, setConfirmClear] = useState(false);
   const confirmTimer = useRef<number | null>(null);
 
@@ -43,6 +45,18 @@ export function Toolbar() {
         ))}
       </div>
       <div className="toolbar-group toolbar-footer">
+        <button
+          className="tool-btn"
+          disabled={agentUndoDepth === 0}
+          onClick={() => undoAgent()}
+          title={agentUndoDepth === 0 ? "No agent change to undo" : "Undo the last agent change"}
+          aria-label="Undo the last agent change"
+        >
+          <span className="tool-icon">
+            <IconUndo />
+          </span>
+          <span className="tool-label">Undo agent</span>
+        </button>
         <button
           className={`tool-btn tool-danger${confirmClear ? " is-confirm" : ""}`}
           onClick={() => {
