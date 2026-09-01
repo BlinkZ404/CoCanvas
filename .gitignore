@@ -9,10 +9,7 @@ yarn-debug.log*
 yarn-error.log*
 *.tsbuildinfo
 .cursor
-
-# Local only. Do not push writeups, demos, or notes.
 private/
-SUBMISSION.md
 *.mp4
 *.mov
 *.webm
