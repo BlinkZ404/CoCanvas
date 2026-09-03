@@ -17,14 +17,14 @@ Product managers and workshop facilitators who map a checkout, onboarding, or su
 1. Write a brief on the board ("grocery checkout: cart, address, payment, success").
 2. Ask the agent to draft. It creates labeled nodes and connectors in the live store.
 3. Run `review_canvas`. The page, not the model, checks brief coverage, unlabeled shapes, orphans, missing start or end, and overlaps.
-4. The agent pins the gap on the actual node. You drag, relabel, or add the missing step.
+4. The agent pins the gap on the actual node. You drag, relabel, add the missing step, or pin it yourself.
 5. Undo the last agent turn if the draft is wrong.
 
-Human edits (toolbar, drag, inspector) and agent edits (WebMCP tools) mutate the same zustand store. Activity is tagged You or Agent.
+Human edits (toolbar, drag, resize, connect, pin, inspector) and agent edits (WebMCP tools) mutate the same zustand store. Activity is tagged You or Agent. Destructive calls wait for an in-page confirm. Delete and Escape work from the keyboard. Click an arrow to rename or remove it.
 
 ## WebMCP tools
 
-The page registers a 20-tool surface via `document.modelContext.registerTool()`. Read tools are marked `readOnlyHint: true`.
+The page registers tools via `document.modelContext.registerTool()`. The set changes with the board: `draft_from_brief` and `review_canvas` appear once a brief exists, `connect_elements` once there are two nodes, `undo_last` after an agent turn. Read tools are marked `readOnlyHint: true`. User-authored text is marked `untrustedContentHint: true`.
 
 | Tool | Role |
 | --- | --- |
