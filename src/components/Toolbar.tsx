@@ -1,83 +1,136 @@
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import { confirmAction } from "../confirmAction";
+import { clientHitsSurface, placeShapeAt } from "../placeShape";
 import { useCanvasStore } from "../store/canvasStore";
 import type { ElementKind } from "../types";
-import { IconEllipse, IconFrame, IconRect, IconSticky, IconText, IconTrash, IconUndo } from "./Icons";
+import { IconConnect, IconTrash } from "./Icons";
 
-const TOOLS: { kind: ElementKind; label: string; Icon: ComponentType }[] = [
-  { kind: "frame", label: "Frame", Icon: IconFrame },
-  { kind: "rectangle", label: "Rectangle", Icon: IconRect },
-  { kind: "ellipse", label: "Ellipse", Icon: IconEllipse },
-  { kind: "text", label: "Text", Icon: IconText },
-  { kind: "sticky", label: "Sticky", Icon: IconSticky },
+const TOOLS: { kind: ElementKind; label: string }[] = [
+  { kind: "frame", label: "Frame" },
+  { kind: "rectangle", label: "Rectangle" },
+  { kind: "ellipse", label: "Ellipse" },
+  { kind: "text", label: "Text" },
+  { kind: "sticky", label: "Sticky" },
 ];
+
+const DRAG_THRESHOLD = 4;
 
 export function Toolbar() {
   const addElement = useCanvasStore((s) => s.addElement);
   const clearAll = useCanvasStore((s) => s.clearAll);
-  const undoAgent = useCanvasStore((s) => s.undoAgent);
-  const agentUndoDepth = useCanvasStore((s) => s.agentUndoDepth);
-  const [confirmClear, setConfirmClear] = useState(false);
-  const confirmTimer = useRef<number | null>(null);
+  const canConnect = useCanvasStore((s) => s.elements.length >= 2);
+  const hasContent = useCanvasStore(
+    (s) => s.elements.length > 0 || s.connectors.length > 0 || s.pins.length > 0
+  );
+  const connectArmed = useCanvasStore((s) => s.connectArmed);
+  const armConnect = useCanvasStore((s) => s.armConnect);
 
-  useEffect(() => {
-    return () => {
-      if (confirmTimer.current != null) window.clearTimeout(confirmTimer.current);
-    };
-  }, []);
+  async function onClear() {
+    const yes = await confirmAction({
+      title: "Clear the canvas?",
+      body: "Removes every node, arrow, and pin. The brief stays.",
+      confirmLabel: "Clear",
+    });
+    if (yes) clearAll("human");
+  }
+
+  function startPlace(kind: ElementKind, label: string, e: React.PointerEvent) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const originX = e.clientX;
+    const originY = e.clientY;
+    let moved = false;
+    let ghost: HTMLDivElement | null = null;
+    const surface = document.querySelector(".canvas-surface");
+
+    function onMove(ev: PointerEvent) {
+      if (!moved) {
+        if (Math.hypot(ev.clientX - originX, ev.clientY - originY) < DRAG_THRESHOLD) return;
+        moved = true;
+        ghost = document.createElement("div");
+        ghost.className = "shape-drag-ghost";
+        ghost.textContent = label;
+        document.body.appendChild(ghost);
+      }
+      if (ghost) {
+        ghost.style.left = `${ev.clientX}px`;
+        ghost.style.top = `${ev.clientY}px`;
+      }
+      surface?.classList.toggle("is-drop-target", overCanvas(ev));
+    }
+
+    let finished = false;
+    function onUp(ev: PointerEvent) {
+      if (finished) return;
+      finished = true;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      ghost?.remove();
+      surface?.classList.remove("is-drop-target");
+      if (moved) {
+        if (overCanvas(ev)) placeShapeAt(kind, ev.clientX, ev.clientY);
+        return;
+      }
+      addElement({ kind }, "human");
+    }
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }
 
   return (
-    <aside className="toolbar" aria-label="Insert elements">
+    <aside className="toolbar" aria-label="Insert shapes">
       <div className="toolbar-group">
-        <span className="toolbar-title">Add</span>
         {TOOLS.map((t) => (
           <button
             key={t.kind}
-            className="tool-btn"
-            onClick={() => addElement({ kind: t.kind }, "human")}
-            title={`Add ${t.label}`}
+            className="tool-btn is-shape"
+            onPointerDown={(e) => startPlace(t.kind, t.label, e)}
+            title={`Drag onto the canvas, or click to add ${t.kind === "ellipse" ? "an" : "a"} ${t.label.toLowerCase()}`}
             aria-label={`Add ${t.label}`}
           >
-            <span className="tool-icon">
-              <t.Icon />
+            <span className="tool-glyph" aria-hidden>
+              {t.kind === "text" ? (
+                <span className="shape-swatch is-text">T</span>
+              ) : (
+                <span className={`shape-swatch is-${t.kind}`} />
+              )}
             </span>
-            <span className="tool-label">{t.label}</span>
+            <span className="tool-caption">{t.label}</span>
           </button>
         ))}
-      </div>
-      <div className="toolbar-group toolbar-footer">
         <button
-          className="tool-btn"
-          disabled={agentUndoDepth === 0}
-          onClick={() => undoAgent()}
-          title={agentUndoDepth === 0 ? "No agent change to undo" : "Undo the last agent change"}
-          aria-label="Undo the last agent change"
+          className={`tool-btn${connectArmed ? " is-active" : ""}`}
+          disabled={!canConnect}
+          onClick={() => armConnect()}
+          title={canConnect ? "Connect two nodes" : "Add two nodes to connect them"}
+          aria-label="Connect two nodes"
+          aria-pressed={connectArmed}
         >
           <span className="tool-icon">
-            <IconUndo />
+            <IconConnect size={22} />
           </span>
-          <span className="tool-label">Undo agent</span>
-        </button>
-        <button
-          className={`tool-btn tool-danger${confirmClear ? " is-confirm" : ""}`}
-          onClick={() => {
-            if (!confirmClear) {
-              setConfirmClear(true);
-              if (confirmTimer.current != null) window.clearTimeout(confirmTimer.current);
-              confirmTimer.current = window.setTimeout(() => setConfirmClear(false), 2500);
-              return;
-            }
-            clearAll("human");
-            setConfirmClear(false);
-          }}
-          title={confirmClear ? "Click again to clear the canvas" : "Clear canvas"}
-          aria-label={confirmClear ? "Confirm clear canvas" : "Clear canvas"}
-        >
-          <span className="tool-icon">
-            <IconTrash />
-          </span>
-          <span className="tool-label">{confirmClear ? "Sure?" : "Clear"}</span>
+          <span className="tool-caption">Connect</span>
         </button>
       </div>
+      <button
+        className="tool-btn tool-danger"
+        disabled={!hasContent}
+        onClick={() => void onClear()}
+        title="Clear canvas"
+        aria-label="Clear canvas"
+      >
+        <span className="tool-icon">
+          <IconTrash size={22} />
+        </span>
+        <span className="tool-caption">Clear</span>
+      </button>
     </aside>
   );
+}
+
+function overCanvas(ev: PointerEvent | MouseEvent) {
+  const surface = document.querySelector(".canvas-surface");
+  return Boolean(surface && clientHitsSurface(surface, ev.clientX, ev.clientY));
 }

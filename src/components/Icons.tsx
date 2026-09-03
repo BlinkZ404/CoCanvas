@@ -10,60 +10,32 @@ const stroke = {
   strokeLinejoin: "round" as const,
 };
 
-export function IconFrame({ size = 18 }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
-      <rect x="4.5" y="4.5" width="15" height="15" rx="3" />
-      <path d="M4.5 9.5h15" />
-    </svg>
-  );
-}
-
-export function IconRect({ size = 18 }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
-      <rect x="5" y="6.5" width="14" height="11" rx="2" />
-    </svg>
-  );
-}
-
-export function IconEllipse({ size = 18 }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
-      <ellipse cx="12" cy="12" rx="7.5" ry="6.25" />
-    </svg>
-  );
-}
-
-export function IconText({ size = 18 }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
-      <path d="M6 7.5h12M12 7.5v9M9.5 16.5h5" />
-    </svg>
-  );
-}
-
-export function IconSticky({ size = 18 }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
-      <path d="M7 5.5h7.5L18.5 9.5V18a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 18V7A1.5 1.5 0 0 1 7 5.5Z" />
-      <path d="M14.5 5.5V9a1 1 0 0 0 1 1h3.5" />
-    </svg>
-  );
-}
-
 export function IconTrash({ size = 18 }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
-      <path d="M5.5 8h13M10 8V6.5A1.5 1.5 0 0 1 11.5 5h1A1.5 1.5 0 0 1 14 6.5V8M8.5 8v10a1.5 1.5 0 0 0 1.5 1.5h4a1.5 1.5 0 0 0 1.5-1.5V8" />
-    </svg>
-  );
-}
-
-export function IconSpark({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
-      <path d="M12 4.5v3M12 16.5v3M4.5 12h3M16.5 12h3M7.2 7.2l2 2M14.8 14.8l2 2M16.8 7.2l-2 2M9.2 14.8l-2 2" />
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="M8.15 8.15 8.9 19.05A1.7 1.7 0 0 0 10.6 20.6h2.8a1.7 1.7 0 0 0 1.7-1.55l.75-10.9Z"
+        fill="currentColor"
+        fillOpacity="0.28"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5 8h14M9.2 8V6.25A1.25 1.25 0 0 1 10.45 5h3.1A1.25 1.25 0 0 1 14.8 6.25V8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10.6 11.35v5.1M13.4 11.35v5.1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -105,13 +77,11 @@ export function IconNote({ size = 16 }: IconProps) {
   );
 }
 
-export function IconGrid({ size = 16 }: IconProps) {
+export function IconSun({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
-      <rect x="5" y="5" width="5.5" height="5.5" rx="1.2" />
-      <rect x="13.5" y="5" width="5.5" height="5.5" rx="1.2" />
-      <rect x="5" y="13.5" width="5.5" height="5.5" rx="1.2" />
-      <rect x="13.5" y="13.5" width="5.5" height="5.5" rx="1.2" />
+      <circle cx="12" cy="12" r="3.25" />
+      <path d="M12 4.75v1.7M12 17.55v1.7M4.75 12h1.7M17.55 12h1.7M6.55 6.55l1.2 1.2M16.25 16.25l1.2 1.2M17.45 6.55l-1.2 1.2M7.75 16.25l-1.2 1.2" />
     </svg>
   );
 }
@@ -124,10 +94,39 @@ export function IconMoon({ size = 16 }: IconProps) {
   );
 }
 
+export function IconSystem({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
+      <rect x="4.5" y="5.5" width="15" height="10.5" rx="1.75" />
+      <path d="M8.5 18.5h7M12 16v2.5" />
+    </svg>
+  );
+}
+
+export function IconConnect({ size = 18 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
+      <circle cx="6.5" cy="12" r="2.25" />
+      <circle cx="17.5" cy="12" r="2.25" />
+      <path d="M8.8 12h6.4" />
+    </svg>
+  );
+}
+
 export function IconUndo({ size = 18 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
-      <path d="M8 8H5.5v2.5M5.8 10.2A6.5 6.5 0 1 0 8 6.6" />
+      <path d="M9 15H7.2A5.2 5.2 0 1 0 12 9.2" />
+      <path d="M12.2 5.8 8.8 9.2l3.4 3.4" />
+    </svg>
+  );
+}
+
+export function IconRedo({ size = 18 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
+      <path d="M15 15h1.8A5.2 5.2 0 1 1 12 9.2" />
+      <path d="M11.8 5.8 15.2 9.2l-3.4 3.4" />
     </svg>
   );
 }
@@ -151,13 +150,38 @@ export function IconGap({ size = 16 }: IconProps) {
   );
 }
 
+export function IconClose({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
+      <path d="M7 7l10 10M17 7 7 17" />
+    </svg>
+  );
+}
+
+export function IconCopy({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
+      <rect x="8.5" y="8.5" width="9" height="9" rx="1.5" />
+      <path d="M15.5 8.5V7A1.5 1.5 0 0 0 14 5.5H7A1.5 1.5 0 0 0 5.5 7v7A1.5 1.5 0 0 0 7 15.5h1.5" />
+    </svg>
+  );
+}
+
+export function IconCheck({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
+      <path d="M6.5 12.5 10 16l7.5-8" />
+    </svg>
+  );
+}
+
 export function LogoMark() {
   return (
-    <svg className="logo-mark" viewBox="0 0 32 32" aria-hidden>
-      <rect x="2.5" y="2.5" width="12.5" height="12.5" rx="3.6" fill="#7C6CF5" />
-      <rect x="17" y="2.5" width="12.5" height="12.5" rx="3.6" fill="#4ECDC4" />
-      <rect x="2.5" y="17" width="12.5" height="12.5" rx="3.6" fill="#C4B5FD" />
-      <rect x="17" y="17" width="12.5" height="12.5" rx="3.6" fill="#E8C36A" />
+    <svg className="logo-mark" viewBox="0 0 24 24" aria-hidden>
+      <rect x="2" y="2" width="20" height="20" rx="6" fill="var(--logo-bg)" />
+      <circle cx="9" cy="12" r="2.05" fill="none" stroke="var(--logo-fg)" strokeWidth="1.5" />
+      <circle cx="15" cy="12" r="2.05" fill="none" stroke="var(--logo-fg)" strokeWidth="1.5" />
+      <path d="M11.05 12h1.9" fill="none" stroke="var(--logo-fg)" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }

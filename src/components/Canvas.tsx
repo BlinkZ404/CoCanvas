@@ -1,10 +1,13 @@
 import { useEffect, useRef } from "react";
+import { boardExtent } from "../geometry/board";
+import { connectorLayout } from "../geometry/connectors";
 import { useCanvasStore } from "../store/canvasStore";
-import type { CanvasElement } from "../types";
+import { isDarkColor } from "../theme";
 import { CanvasElementView } from "./CanvasElement";
 
-function center(el: CanvasElement) {
-  return { x: el.x + el.width / 2, y: el.y + el.height / 2 };
+function isBoardBackground(target: EventTarget | null, surface: HTMLElement | null) {
+  if (!(target instanceof Element) || !surface) return false;
+  return target === surface || target.classList.contains("canvas-world") || target.classList.contains("canvas-grid");
 }
 
 export function Canvas() {
@@ -13,104 +16,126 @@ export function Canvas() {
   const background = useCanvasStore((s) => s.background);
   const select = useCanvasStore((s) => s.select);
   const resetViewNonce = useCanvasStore((s) => s.resetViewNonce);
+  const selectedId = useCanvasStore((s) => s.selectedId);
+  const connectArmed = useCanvasStore((s) => s.connectArmed);
+  const connectFromId = useCanvasStore((s) => s.connectFromId);
+  const cancelConnect = useCanvasStore((s) => s.cancelConnect);
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const extent = boardExtent(elements);
 
-  // After the canvas is cleared or an agent builds a layout, return the view to
-  // the design origin. The structural scroll guard in <App> keeps the fixed
-  // frame stable against any browser auto-scroll of freshly rendered elements.
   useEffect(() => {
-    surfaceRef.current?.scrollTo({ left: 0, top: 0 });
+    surfaceRef.current?.scrollTo?.({ left: 0, top: 0 });
   }, [resetViewNonce]);
 
   const byId = new Map(elements.map((e) => [e.id, e]));
-  const darkSurface = isDark(background);
+  const darkSurface = isDarkColor(background);
 
   return (
-    <main
-      className={`canvas-surface${darkSurface ? " is-dark" : ""}`}
-      ref={surfaceRef}
-      style={{ backgroundColor: background }}
-      onMouseDown={(e) => {
-        if (e.target === surfaceRef.current) select(null, "human");
-      }}
-    >
-      <div className="canvas-grid" aria-hidden />
-      <svg className="connector-layer" aria-hidden>
-        <defs>
-          <marker
-            id="arrowhead"
-            markerWidth="10"
-            markerHeight="7"
-            refX="8"
-            refY="3.5"
-            orient="auto"
-          >
-            <polygon points="0 0, 10 3.5, 0 7" fill={darkSurface ? "#9aa3b5" : "#6b7280"} />
-          </marker>
-        </defs>
-        {connectors.map((c) => {
-          const from = byId.get(c.from);
-          const to = byId.get(c.to);
-          if (!from || !to) return null;
-          const a = center(from);
-          const b = center(to);
-          const midX = (a.x + b.x) / 2;
-          const midY = (a.y + b.y) / 2;
-          const dx = b.x - a.x;
-          const dy = b.y - a.y;
-          const lift = Math.min(28, Math.hypot(dx, dy) * 0.12);
-          const cx = midX;
-          const cy = midY - lift;
-          const path = `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`;
-          return (
-            <g key={c.id}>
-              <path
-                d={path}
-                fill="none"
-                stroke={darkSurface ? "#8b93a7" : "#7b8494"}
-                strokeWidth={1.75}
-                markerEnd="url(#arrowhead)"
-              />
-              {c.label ? (
-                <g>
-                  <rect
-                    x={cx - Math.max(18, c.label.length * 3.6 + 10)}
-                    y={cy - 18}
-                    width={Math.max(36, c.label.length * 7.2 + 20)}
-                    height={16}
-                    rx={8}
-                    fill={darkSurface ? "#1c1e26" : "#f6f4ef"}
-                    stroke={darkSurface ? "#3a3d48" : "#d8d3c8"}
+    <div className="canvas-stack">
+      <main
+        id="canvas-board"
+        className={`canvas-surface${darkSurface ? " is-dark" : ""}${connectArmed ? " is-connecting" : ""}`}
+        ref={surfaceRef}
+        tabIndex={-1}
+        aria-label="Canvas"
+        style={{ backgroundColor: background }}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          if (!isBoardBackground(e.target, surfaceRef.current)) return;
+          if (connectArmed) {
+            cancelConnect();
+            return;
+          }
+          select(null, "human");
+        }}
+      >
+        <div className="canvas-world" style={extent ? { width: extent.width, height: extent.height } : undefined}>
+          <div className="canvas-grid" aria-hidden />
+          <svg className="connector-layer" aria-hidden>
+            <defs>
+              <marker
+                id="arrowhead"
+                markerWidth="10"
+                markerHeight="7"
+                refX="8"
+                refY="3.5"
+                orient="auto"
+              >
+                <polygon points="0 0, 10 3.5, 0 7" fill={darkSurface ? "#c9d0dc" : "#6b7280"} />
+              </marker>
+            </defs>
+            {connectors.map((c) => {
+              const from = byId.get(c.from);
+              const to = byId.get(c.to);
+              if (!from || !to) return null;
+              const geo = connectorLayout(from, to);
+              const labelW = Math.max(32, c.label.length * 7.2 + 16);
+              const showLabel = Boolean(c.label) && geo.length >= 44;
+              const arrowSelected = selectedId === c.id;
+              return (
+                <g key={c.id}>
+                  <path
+                    className="connector-hit"
+                    d={geo.d}
+                    fill="none"
+                    style={{ pointerEvents: "stroke" }}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      if (e.button !== 0) return;
+                      if (connectArmed) return;
+                      select(c.id, "human");
+                    }}
                   />
-                  <text x={cx} y={cy - 7} className="connector-label" textAnchor="middle">
-                    {c.label}
-                  </text>
+                  <path
+                    d={geo.d}
+                    fill="none"
+                    className={arrowSelected ? "connector-line is-selected" : "connector-line"}
+                    stroke={arrowSelected ? undefined : darkSurface ? "#c3cad6" : "#7b8494"}
+                    strokeWidth={arrowSelected ? undefined : 1.75}
+                    markerEnd="url(#arrowhead)"
+                  />
+                  {showLabel ? (
+                    <g>
+                      <rect
+                        x={geo.labelX - labelW / 2}
+                        y={geo.labelY - 11}
+                        width={labelW}
+                        height={18}
+                        rx={9}
+                        fill={darkSurface ? "#2a2e36" : "#f6f4ef"}
+                        stroke={darkSurface ? "#6b7280" : "#d8d3c8"}
+                      />
+                      <text x={geo.labelX} y={geo.labelY + 2} className="connector-label" textAnchor="middle">
+                        {c.label}
+                      </text>
+                    </g>
+                  ) : null}
                 </g>
-              ) : null}
-            </g>
-          );
-        })}
-      </svg>
+              );
+            })}
+          </svg>
 
-      {elements.length === 0 ? (
-        <div className="empty-hint">
-          <p>Write the job in the brief</p>
-          <p>Then run Find the gap, or ask ChatGPT from the compass browser.</p>
+          {elements.length === 0 ? (
+            <div className="empty-hint">
+              <p>Drag a shape from the toolbar, or click one.</p>
+              <p>Or run Find the gap from the agent panel.</p>
+            </div>
+          ) : null}
+
+          {elements.map((el) => (
+            <CanvasElementView key={el.id} element={el} surfaceRef={surfaceRef} />
+          ))}
+        </div>
+      </main>
+      {connectArmed ? (
+        <div className="connect-hint" role="status">
+          <span>{connectFromId ? "Click the end node" : "Click the start node"}</span>
+          <button type="button" className="connect-hint-cancel" onClick={cancelConnect}>
+            Cancel
+          </button>
         </div>
       ) : null}
-
-      {elements.map((el) => (
-        <CanvasElementView key={el.id} element={el} surfaceRef={surfaceRef} />
-      ))}
-    </main>
+    </div>
   );
 }
 
-function isDark(hex: string): boolean {
-  const c = hex.replace("#", "");
-  if (c.length !== 6) return false;
-  const r = parseInt(c.slice(0, 2), 16);
-  const g = parseInt(c.slice(2, 4), 16);
-  const b = parseInt(c.slice(4, 6), 16);
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.42;
-}
