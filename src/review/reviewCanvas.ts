@@ -1,3 +1,4 @@
+import { KIND_LABEL, clipLabel } from "../labels";
 import type { CanvasElement, Connector, Pin } from "../types";
 
 export type FindingSeverity = "error" | "warn" | "info";
@@ -114,6 +115,11 @@ function contains(outer: CanvasElement, inner: CanvasElement) {
   );
 }
 
+function nodeName(el: CanvasElement) {
+  const text = el.text.trim();
+  return text ? clipLabel(text) : KIND_LABEL[el.kind];
+}
+
 function canvasText(elements: CanvasElement[], connectors: Connector[]) {
   return [
     ...elements.map((e) => e.text),
@@ -214,7 +220,7 @@ export function reviewCanvas(input: ReviewInput): ReviewReport {
       if (b.kind === "frame" && contains(b, a)) continue;
       const smaller = Math.min(area(a), area(b));
       if (intersection(a, b) / smaller > 0.4) {
-        add("warn", "overlap", `${a.id} and ${b.id} overlap. Separate them so the path stays readable.`, [
+        add("warn", "overlap", `${nodeName(a)} and ${nodeName(b)} overlap. Separate them so the path stays readable.`, [
           a.id,
           b.id,
         ]);

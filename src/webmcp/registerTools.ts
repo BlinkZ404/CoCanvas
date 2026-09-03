@@ -1,14 +1,22 @@
-import { useCanvasStore } from "../store/canvasStore";
+import { confirmAction } from "../confirmAction";
+import { KIND_LABEL, type AlignEdge, type LayerAction } from "../labels";
 import { briefTerms, reviewCanvas } from "../review/reviewCanvas";
+import { useCanvasStore, type CanvasState } from "../store/canvasStore";
+import { readThemePref, resolveTheme, stockBoardForTheme } from "../theme";
 import type { CanvasElement, ElementKind } from "../types";
 import {
   ensureModelContext,
   resultToText,
+  type JSONSchema,
   type ModelContextLike,
   type ToolDefinition,
 } from "./polyfill";
 
+const LAYER_ACTIONS: LayerAction[] = ["front", "back", "forward", "backward"];
+const ALIGN_EDGES: AlignEdge[] = ["left", "center", "right", "top", "middle", "bottom"];
 const KINDS: ElementKind[] = ["frame", "rectangle", "ellipse", "text", "sticky"];
+const OUTPUT_BUDGET = 1500;
+const LIST_CAP = 24;
 
 export const SAMPLE_BRIEF =
   "Grocery checkout: cart review, delivery address, payment, order success. Every step labeled. One path through.";
@@ -17,15 +25,26 @@ function store() {
   return useCanvasStore.getState();
 }
 
-function describe(el: CanvasElement) {
-  return {
+function clip(text: string, n = 80) {
+  return text.length > n ? `${text.slice(0, n - 1)}…` : text;
+}
+
+function describe(el: CanvasElement, compact = false) {
+  const base = {
     id: el.id,
     kind: el.kind,
     x: Math.round(el.x),
     y: Math.round(el.y),
+    z: el.z,
+    text: clip(el.text),
+  };
+  if (compact) {
+    return { ...base, w: Math.round(el.width), h: Math.round(el.height) };
+  }
+  return {
+    ...base,
     width: Math.round(el.width),
     height: Math.round(el.height),
-    text: el.text,
     fill: el.fill,
     stroke: el.stroke,
     fontSize: el.fontSize,
@@ -33,7 +52,17 @@ function describe(el: CanvasElement) {
 }
 
 function ok(text: string) {
-  return { content: [{ type: "text" as const, text }] };
+  if (text.length <= OUTPUT_BUDGET) {
+    return { content: [{ type: "text" as const, text }] };
+  }
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `${text.slice(0, OUTPUT_BUDGET - 14)}\n…truncated`,
+      },
+    ],
+  };
 }
 
 function asAgent<T>(fn: () => T): T {
@@ -41,21 +70,82 @@ function asAgent<T>(fn: () => T): T {
   return fn();
 }
 
+function freezeSchema(schema?: JSONSchema): JSONSchema {
+  return {
+    type: "object",
+    properties: {},
+    ...schema,
+    additionalProperties: false,
+  };
+}
+
+function isAvailable(name: string, s: CanvasState): boolean {
+  const hasBrief = s.brief.trim().length > 0;
+  const n = s.elements.length;
+  const openPins = s.pins.some((p) => !p.resolved);
+  switch (name) {
+    case "draft_from_brief":
+    case "review_canvas":
+      return hasBrief;
+    case "connect_elements":
+    case "arrange_grid":
+      return n >= 2;
+    case "reverse_connector":
+      return s.connectors.length > 0;
+    case "pin_element":
+    case "update_element":
+    case "move_element":
+    case "delete_element":
+    case "layer_element":
+    case "duplicate_element":
+    case "align_element":
+      return n > 0;
+    case "list_pins":
+      return s.pins.length > 0;
+    case "resolve_pin":
+      return openPins;
+    case "undo_last":
+      return s.undoDepth > 0;
+    case "redo_last":
+      return s.redoDepth > 0;
+    default:
+      return true;
+  }
+}
+
+function gateKey(s: CanvasState): string {
+  return [
+    s.brief.trim() ? 1 : 0,
+    s.elements.length,
+    s.connectors.length,
+    s.pins.length,
+    s.pins.some((p) => !p.resolved) ? 1 : 0,
+    s.undoDepth,
+    s.redoDepth,
+  ].join(":");
+}
+
+function themeBoard() {
+  return stockBoardForTheme(resolveTheme(readThemePref()));
+}
+
 function draftFromBrief(brief: string) {
   const terms = briefTerms(brief);
   const s = store();
+  s.beginAgentBatch();
+  try {
   s.resetView();
-  s.setBackground("#f6f4ef", "agent");
+  s.setBackground(themeBoard(), "agent");
   s.addElement(
     {
       kind: "text",
-      x: 24,
-      y: 28,
-      width: 420,
-      height: 28,
+      x: 40,
+      y: 32,
+      width: 520,
+      height: 32,
       text: brief.trim().slice(0, 48) || "Flow",
       fill: "#1a1a1e",
-      fontSize: 18,
+      fontSize: 22,
     },
     "agent"
   );
@@ -65,16 +155,16 @@ function draftFromBrief(brief: string) {
   steps.forEach((label, i) => {
     const col = i % 3;
     const row = Math.floor(i / 3);
-    const x = 24 + col * 176;
-    const y = 88 + row * 140;
+    const x = 40 + col * 220;
+    const y = 112 + row * 160;
     const isEnd = i === 0 || i === steps.length - 1;
     const el = s.addElement(
       {
         kind: isEnd ? "ellipse" : "rectangle",
         x,
         y,
-        width: isEnd ? 120 : 132,
-        height: isEnd ? 72 : 64,
+        width: isEnd ? 148 : 160,
+        height: isEnd ? 80 : 68,
         text: label,
         fill: i === 0 ? "#5a9e86" : i === steps.length - 1 ? "#c46b5d" : "#5b7fb5",
         stroke: i === 0 ? "#3f7a66" : i === steps.length - 1 ? "#9a5248" : "#3f5d88",
@@ -89,14 +179,12 @@ function draftFromBrief(brief: string) {
   }
   s.select(null, "agent");
   return ids;
+  } finally {
+    s.endAgentBatch();
+  }
 }
 
-/**
- * The full WebMCP tool surface for CoCanvas. Every tool mutates or reads the same
- * shared canvas store that the human UI uses, so people and agents collaborate
- * on one live document. All agent-driven actions are tagged actor: "agent" so
- * they appear attributed in the activity feed.
- */
+/** Tools that read and write the same canvas store as the UI. Agent calls are tagged actor: "agent". */
 function toolDefinitions(): ToolDefinition[] {
   return [
     {
@@ -104,7 +192,7 @@ function toolDefinitions(): ToolDefinition[] {
       title: "Get the design brief",
       description:
         "Read the job on this board: the brief the human wrote. Call this before drafting or reviewing so you know what the flow must cover.",
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
       inputSchema: { type: "object", properties: {} },
       execute: () => {
         const brief = store().brief;
@@ -120,7 +208,7 @@ function toolDefinitions(): ToolDefinition[] {
       title: "Summarize the canvas",
       description:
         "Get a high-level snapshot: brief, element counts, connectors, open pins, background, and the currently selected element. Call this first to understand the live design before making changes.",
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
       inputSchema: { type: "object", properties: {} },
       execute: () => {
         const s = store();
@@ -130,14 +218,14 @@ function toolDefinitions(): ToolDefinition[] {
         return ok(
           JSON.stringify(
             {
-              brief: s.brief,
+              brief: clip(s.brief, 160),
               totalElements: s.elements.length,
               countsByKind: counts,
               connectors: s.connectors.length,
               openPins: s.pins.filter((p) => !p.resolved).length,
               background: s.background,
               selectedId: s.selectedId,
-              selected: selected ? describe(selected) : null,
+              selected: selected ? describe(selected, true) : null,
             },
             null,
             2
@@ -149,8 +237,8 @@ function toolDefinitions(): ToolDefinition[] {
       name: "list_elements",
       title: "List canvas elements",
       description:
-        "List every element currently on the canvas with its id, kind, position, size, text, and colors. Use this to find the id of an element you want to update, move, connect, pin, or delete.",
-      annotations: { readOnlyHint: true },
+        "List elements on the canvas with id, kind, position, size, layer (z), and text. Use this to find the id of an element you want to update, move, layer, duplicate, align, connect, pin, or delete.",
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
       inputSchema: {
         type: "object",
         properties: {
@@ -164,7 +252,20 @@ function toolDefinitions(): ToolDefinition[] {
       execute: (input: { kind?: ElementKind }) => {
         let els = store().elements;
         if (input?.kind) els = els.filter((e) => e.kind === input.kind);
-        return ok(JSON.stringify(els.map(describe), null, 2));
+        const total = els.length;
+        const shown = els.slice(0, LIST_CAP).map((e) => describe(e, true));
+        return ok(
+          JSON.stringify(
+            {
+              total,
+              showing: shown.length,
+              truncated: total > shown.length,
+              elements: shown,
+            },
+            null,
+            2
+          )
+        );
       },
     },
     {
@@ -172,7 +273,7 @@ function toolDefinitions(): ToolDefinition[] {
       title: "Review the board against the brief",
       description:
         "Run the page's own design review. Returns structured findings: brief gaps (required terms missing from labels), unlabeled shapes, orphan nodes, missing start or end, overlaps, and open pins. Use this after drafting. Then pin_element on the nodes that need work, or add the missing steps.",
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
       inputSchema: { type: "object", properties: {} },
       execute: () => {
         const s = store();
@@ -189,7 +290,7 @@ function toolDefinitions(): ToolDefinition[] {
       name: "list_pins",
       title: "List critique pins",
       description: "List critique pins on the board. Open pins are unresolved comments from the human or the agent.",
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
       inputSchema: {
         type: "object",
         properties: {
@@ -202,7 +303,16 @@ function toolDefinitions(): ToolDefinition[] {
       execute: (input: { openOnly?: boolean }) => {
         let pins = store().pins;
         if (input?.openOnly) pins = pins.filter((p) => !p.resolved);
-        return ok(JSON.stringify(pins, null, 2));
+        return ok(
+          JSON.stringify(
+            pins.map((p) => ({
+              ...p,
+              text: clip(p.text, 120),
+            })),
+            null,
+            2
+          )
+        );
       },
     },
     {
@@ -278,20 +388,30 @@ function toolDefinitions(): ToolDefinition[] {
     },
     {
       name: "undo_last",
-      title: "Undo the last agent change",
+      title: "Undo the last change",
       description:
-        "Revert the most recent agent turn (one tool call, including multi-step drafts). Use this if a draft went wrong. The human can also undo from the toolbar.",
+        "Revert the most recent canvas change, including a human edit or a full agent turn. The human can also undo and redo from the toolbar.",
       inputSchema: { type: "object", properties: {} },
       execute: () => {
-        const undone = store().undoAgent();
-        return ok(undone ? "Reverted the last agent change." : "Nothing to undo.");
+        const undone = store().undo("agent");
+        return ok(undone ? "Reverted the last change." : "Nothing to undo.");
+      },
+    },
+    {
+      name: "redo_last",
+      title: "Redo the last undone change",
+      description: "Re-apply the change that undo_last or the toolbar Undo button just reverted.",
+      inputSchema: { type: "object", properties: {} },
+      execute: () => {
+        const redone = store().redo("agent");
+        return ok(redone ? "Redid the last change." : "Nothing to redo.");
       },
     },
     {
       name: "add_element",
       title: "Add an element",
       description:
-        "Add one element to the canvas: 'frame' (artboard/container), 'rectangle' or 'ellipse' (shapes), 'text' (heading/label), or 'sticky' (sticky note). Returns the created element with its new id. Any omitted field uses a sensible default. The canvas is a fixed frame, so keep x roughly 0 to 560 and y roughly 0 to 440 to keep elements in view.",
+        "Add one element to the canvas: 'frame' (artboard/container), 'rectangle' or 'ellipse' (shapes), 'text' (heading/label), or 'sticky' (sticky note). Returns the created element with its new id. Any omitted field uses a sensible default. Leave at least 56px between nodes so connector labels stay in the gap. Keep x roughly 0 to 880 and y roughly 0 to 560 to stay in view.",
       inputSchema: {
         type: "object",
         properties: {
@@ -350,7 +470,7 @@ function toolDefinitions(): ToolDefinition[] {
       name: "move_element",
       title: "Move an element",
       description:
-        "Move an element to an absolute position (x, y) in canvas pixels. Use list_elements to find ids and current positions. Keep x roughly 0 to 560 and y roughly 0 to 440 so the element stays within the visible frame.",
+        "Move an element to an absolute position (x, y) in canvas pixels. Use list_elements to find ids and current positions. Leave a gap between nodes. Keep x roughly 0 to 880 and y roughly 0 to 560 so the element stays in view.",
       inputSchema: {
         type: "object",
         properties: {
@@ -369,15 +489,99 @@ function toolDefinitions(): ToolDefinition[] {
       },
     },
     {
+      name: "layer_element",
+      title: "Change layer order",
+      description:
+        "Bring an element forward or send it backward. Actions: 'front' (top of the stack), 'back' (behind everything), 'forward' (one step up), 'backward' (one step down). Use this when a card sits behind a frame or another node.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Element id from list_elements." },
+          action: {
+            type: "string",
+            enum: LAYER_ACTIONS,
+            description: "front, back, forward, or backward.",
+          },
+        },
+        required: ["id", "action"],
+      },
+      execute: (input: { id: string; action: LayerAction }) => {
+        return asAgent(() => {
+          if (!LAYER_ACTIONS.includes(input.action)) {
+            return ok(`Error: action must be one of ${LAYER_ACTIONS.join(", ")}`);
+          }
+          const updated = store().layerElement(input.id, input.action, "agent");
+          if (!updated) return ok(`Error: no element with id "${input.id}"`);
+          return ok(
+            `Layered ${input.id} (${updated.text.trim() || updated.kind}): ${input.action}. z=${updated.z}`
+          );
+        });
+      },
+    },
+    {
+      name: "duplicate_element",
+      title: "Duplicate an element",
+      description:
+        "Copy an element and offset the copy by 24px so it is easy to grab. Pins and connectors are not copied.",
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string", description: "Element id to copy." } },
+        required: ["id"],
+      },
+      execute: (input: { id: string }) => {
+        return asAgent(() => {
+          const copy = store().duplicateElement(input.id, "agent");
+          if (!copy) return ok(`Error: no element with id "${input.id}"`);
+          return ok(`Duplicated:\n${JSON.stringify(describe(copy), null, 2)}`);
+        });
+      },
+    },
+    {
+      name: "align_element",
+      title: "Align an element",
+      description:
+        "Align an element inside its parent frame, or to the page if it is not inside a frame. Edges: left, center, right, top, middle, bottom.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          edge: { type: "string", enum: ALIGN_EDGES },
+        },
+        required: ["id", "edge"],
+      },
+      execute: (input: { id: string; edge: AlignEdge }) => {
+        return asAgent(() => {
+          if (!ALIGN_EDGES.includes(input.edge)) {
+            return ok(`Error: edge must be one of ${ALIGN_EDGES.join(", ")}`);
+          }
+          const updated = store().alignElement(input.id, input.edge, "agent");
+          if (!updated) return ok(`Error: no element with id "${input.id}"`);
+          return ok(`Aligned ${input.id} to the ${input.edge}.`);
+        });
+      },
+    },
+    {
       name: "delete_element",
       title: "Delete an element",
-      description: "Delete an element from the canvas by id, along with any connectors and pins attached to it.",
+      description:
+        "Delete an element from the canvas by id, along with any connectors and pins attached to it. The page asks the human to confirm before deleting.",
+      annotations: { destructiveHint: true },
       inputSchema: {
         type: "object",
         properties: { id: { type: "string" } },
         required: ["id"],
       },
-      execute: (input: { id: string }) => {
+      execute: async (input: { id: string }) => {
+        const target = store().elements.find((e) => e.id === input.id);
+        if (!target) return ok(`Error: no element with id "${input.id}"`);
+        const yes = await confirmAction({
+          title: "Delete this node?",
+          body: target.text.trim()
+            ? `Delete "${clip(target.text)}" and any arrows or pins on it.`
+            : `Delete this ${KIND_LABEL[target.kind]} and any arrows or pins on it.`,
+          confirmLabel: "Delete",
+        });
+        if (!yes) return ok("Cancelled. Nothing deleted.");
         return asAgent(() => {
           const removed = store().deleteElement(input.id, "agent");
           return ok(removed ? `Deleted ${input.id}.` : `Error: no element with id "${input.id}"`);
@@ -425,6 +629,24 @@ function toolDefinitions(): ToolDefinition[] {
       },
     },
     {
+      name: "reverse_connector",
+      title: "Reverse a connector",
+      description:
+        "Flip an arrow so it points the other way. Pass the connector id from get_canvas_summary or by selecting it. If the opposite arrow already exists, that duplicate is removed.",
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string", description: "Connector id to reverse." } },
+        required: ["id"],
+      },
+      execute: (input: { id: string }) => {
+        return asAgent(() => {
+          const flipped = store().reverseConnector(input.id, "agent");
+          if (!flipped) return ok(`Error: no connector with id "${input.id}"`);
+          return ok(`Reversed connector ${flipped.id}: ${flipped.from} to ${flipped.to}.`);
+        });
+      },
+    },
+    {
       name: "arrange_grid",
       title: "Arrange into a grid",
       description:
@@ -462,9 +684,20 @@ function toolDefinitions(): ToolDefinition[] {
       name: "clear_canvas",
       title: "Clear the canvas",
       description:
-        "Remove all elements, connectors, and pins from the canvas to start fresh. The brief stays. Use with care; the human can undo this agent turn.",
+        "Remove all elements, connectors, and pins from the canvas to start fresh. The brief stays. The page asks the human to confirm. The human can undo this agent turn.",
+      annotations: { destructiveHint: true },
       inputSchema: { type: "object", properties: {} },
-      execute: () => {
+      execute: async () => {
+        const current = store();
+        if (current.elements.length === 0 && current.connectors.length === 0 && current.pins.length === 0) {
+          return ok("Canvas is already empty. Brief kept.");
+        }
+        const yes = await confirmAction({
+          title: "Clear the canvas?",
+          body: "Removes every node, arrow, and pin. The brief stays. You can undo this agent turn.",
+          confirmLabel: "Clear",
+        });
+        if (!yes) return ok("Cancelled. Canvas unchanged.");
         return asAgent(() => {
           store().clearAll("agent");
           return ok("Canvas cleared. Brief kept.");
@@ -475,7 +708,7 @@ function toolDefinitions(): ToolDefinition[] {
       name: "create_layout",
       title: "Create a starter layout",
       description:
-        "Compose a complete starter layout from primitives in one call. Templates: 'login', 'kanban', 'flowchart', 'checkout' (grocery checkout with all brief steps). Prefer draft_from_brief when a brief is already set.",
+        "Replace the current board with a starter layout. The brief stays unless the template sets one. Templates: 'login', 'kanban', 'flowchart', 'checkout'. Prefer draft_from_brief when a brief is already set.",
       inputSchema: {
         type: "object",
         properties: {
@@ -490,6 +723,11 @@ function toolDefinitions(): ToolDefinition[] {
       execute: (input: { template: "login" | "kanban" | "flowchart" | "checkout" }) => {
         return asAgent(() => {
           const s = store();
+          s.beginAgentBatch();
+          try {
+          if (s.elements.length || s.connectors.length || s.pins.length) {
+            s.clearAll("agent");
+          }
           s.resetView();
           let message: string;
           switch (input.template) {
@@ -514,33 +752,32 @@ function toolDefinitions(): ToolDefinition[] {
                 { title: "Done", fill: "#d7e6d8", stroke: "#8fad93" },
               ];
               cols.forEach((col, i) => {
-                const fx = 20 + i * 170;
-                s.addElement({ kind: "frame", x: fx, y: 48, width: 156, height: 392, text: col.title, fill: "#fffcf7", stroke: "#d8d3c8" }, "agent");
-                s.addElement({ kind: "sticky", x: fx + 14, y: 100, width: 128, height: 86, text: `${col.title} card`, fill: col.fill, stroke: col.stroke, fontSize: 13 }, "agent");
+                const fx = 24 + i * 200;
+                s.addElement({ kind: "frame", x: fx, y: 48, width: 180, height: 392, text: col.title, fill: "#fffcf7", stroke: "#d8d3c8" }, "agent");
+                s.addElement({ kind: "sticky", x: fx + 16, y: 100, width: 148, height: 86, text: `${col.title} card`, fill: col.fill, stroke: col.stroke, fontSize: 13 }, "agent");
               });
               message = "Built a three-column kanban board.";
               break;
             }
             case "flowchart": {
-              s.setBackground("#f6f4ef", "agent");
-              s.addElement({ kind: "text", x: 24, y: 40, width: 280, height: 28, text: "User journey", fill: "#1a1a1e", fontSize: 20 }, "agent");
-              const a = s.addElement({ kind: "ellipse", x: 24, y: 132, width: 108, height: 80, text: "Start", fill: "#5a9e86", stroke: "#3f7a66", fontSize: 15 }, "agent");
-              const b = s.addElement({ kind: "rectangle", x: 176, y: 140, width: 124, height: 64, text: "Process", fill: "#5b7fb5", stroke: "#3f5d88", fontSize: 15 }, "agent");
-              const c = s.addElement({ kind: "ellipse", x: 344, y: 132, width: 108, height: 80, text: "End", fill: "#c46b5d", stroke: "#9a5248", fontSize: 15 }, "agent");
+              s.setBackground(themeBoard(), "agent");
+              s.addElement({ kind: "text", x: 40, y: 32, width: 360, height: 32, text: "User journey", fill: "#1a1a1e", fontSize: 22 }, "agent");
+              const a = s.addElement({ kind: "ellipse", x: 40, y: 128, width: 140, height: 80, text: "Start", fill: "#5a9e86", stroke: "#3f7a66", fontSize: 14 }, "agent");
+              const b = s.addElement({ kind: "rectangle", x: 252, y: 136, width: 160, height: 68, text: "Process", fill: "#5b7fb5", stroke: "#3f5d88", fontSize: 14 }, "agent");
+              const c = s.addElement({ kind: "ellipse", x: 492, y: 128, width: 140, height: 80, text: "End", fill: "#c46b5d", stroke: "#9a5248", fontSize: 14 }, "agent");
               s.connect(a.id, b.id, "next", "agent");
               s.connect(b.id, c.id, "done", "agent");
               message = "Built a start to process to end flowchart with connectors.";
               break;
             }
             case "checkout": {
-              s.setBackground("#f6f4ef", "agent");
+              s.setBackground(themeBoard(), "agent");
               if (!s.brief.trim()) s.setBrief(SAMPLE_BRIEF, "agent");
-              const title = s.addElement({ kind: "text", x: 24, y: 28, width: 360, height: 28, text: "Grocery checkout", fill: "#1a1a1e", fontSize: 20 }, "agent");
-              void title;
-              const cart = s.addElement({ kind: "ellipse", x: 20, y: 120, width: 118, height: 76, text: "Cart review", fill: "#5a9e86", stroke: "#3f7a66", fontSize: 13 }, "agent");
-              const addr = s.addElement({ kind: "rectangle", x: 160, y: 126, width: 132, height: 64, text: "Delivery address", fill: "#5b7fb5", stroke: "#3f5d88", fontSize: 13 }, "agent");
-              const pay = s.addElement({ kind: "rectangle", x: 314, y: 126, width: 118, height: 64, text: "Payment", fill: "#8b7cc4", stroke: "#6a5d99", fontSize: 13 }, "agent");
-              const done = s.addElement({ kind: "ellipse", x: 454, y: 120, width: 118, height: 76, text: "Order success", fill: "#c46b5d", stroke: "#9a5248", fontSize: 13 }, "agent");
+              s.addElement({ kind: "text", x: 40, y: 32, width: 520, height: 32, text: "Grocery checkout", fill: "#1a1a1e", fontSize: 22 }, "agent");
+              const cart = s.addElement({ kind: "ellipse", x: 40, y: 128, width: 140, height: 80, text: "Cart review", fill: "#5a9e86", stroke: "#3f7a66", fontSize: 14 }, "agent");
+              const addr = s.addElement({ kind: "rectangle", x: 236, y: 136, width: 168, height: 68, text: "Delivery address", fill: "#5b7fb5", stroke: "#3f5d88", fontSize: 14 }, "agent");
+              const pay = s.addElement({ kind: "rectangle", x: 460, y: 136, width: 140, height: 68, text: "Payment", fill: "#8b7cc4", stroke: "#6a5d99", fontSize: 14 }, "agent");
+              const done = s.addElement({ kind: "ellipse", x: 656, y: 128, width: 148, height: 80, text: "Order success", fill: "#c46b5d", stroke: "#9a5248", fontSize: 14 }, "agent");
               s.connect(cart.id, addr.id, "next", "agent");
               s.connect(addr.id, pay.id, "next", "agent");
               s.connect(pay.id, done.id, "pay", "agent");
@@ -552,13 +789,57 @@ function toolDefinitions(): ToolDefinition[] {
           }
           s.select(null, "agent");
           return ok(message);
+          } finally {
+            s.endAgentBatch();
+          }
         });
       },
     },
   ];
 }
 
-let registered = false;
+const controllers = new Map<string, AbortController>();
+let started = false;
+let lastGate = "";
+
+function prepare(def: ToolDefinition): ToolDefinition {
+  return {
+    ...def,
+    inputSchema: freezeSchema(def.inputSchema),
+  };
+}
+
+function syncTools(modelContext: ModelContextLike) {
+  const s = store();
+  const key = gateKey(s);
+  if (key === lastGate && started) return;
+  lastGate = key;
+
+  const defs = toolDefinitions();
+  const wanted = new Set(defs.filter((d) => isAvailable(d.name, s)).map((d) => d.name));
+
+  for (const [name, ac] of [...controllers]) {
+    if (wanted.has(name)) continue;
+    ac.abort();
+    controllers.delete(name);
+  }
+
+  for (const def of defs) {
+    if (!wanted.has(def.name) || controllers.has(def.name)) continue;
+    const ac = new AbortController();
+    controllers.set(def.name, ac);
+    try {
+      const pending = modelContext.registerTool(prepare(def), { signal: ac.signal });
+      if (pending && typeof pending.then === "function") {
+        pending.catch(() => {
+          controllers.delete(def.name);
+        });
+      }
+    } catch {
+      controllers.delete(def.name);
+    }
+  }
+}
 
 export interface RegistrationInfo {
   modelContext: ModelContextLike;
@@ -566,29 +847,25 @@ export interface RegistrationInfo {
   toolNames: string[];
 }
 
-/** Registers the CoCanvas WebMCP tool surface exactly once. */
+/** Registers the CoCanvas WebMCP tool surface and keeps it in sync with board state. */
 export function registerCoCanvasTools(): RegistrationInfo {
   const { modelContext, polyfilled } = ensureModelContext();
-  const defs = toolDefinitions();
 
-  if (!registered) {
-    registered = true;
-    for (const def of defs) {
-      try {
-        const pending = modelContext.registerTool(def);
-        if (pending && typeof pending.then === "function") {
-          pending.catch(() => undefined);
-        }
-      } catch {
-        // Native hosts may reject a duplicate or a schema they do not like.
-      }
-    }
+  if (!started) {
+    started = true;
+    syncTools(modelContext);
+    useCanvasStore.subscribe((s, prev) => {
+      if (gateKey(s) === gateKey(prev)) return;
+      syncTools(modelContext);
+    });
   }
 
   return {
     modelContext,
     polyfilled,
-    toolNames: defs.map((d) => d.name),
+    toolNames: toolDefinitions()
+      .filter((d) => isAvailable(d.name, store()))
+      .map((d) => d.name),
   };
 }
 

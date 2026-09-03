@@ -1,15 +1,11 @@
 /**
- * A small, self-contained WebMCP polyfill.
+ * WebMCP polyfill for `document.modelContext`.
  *
- * WebMCP exposes an imperative API at `document.modelContext` that lets a page
- * register tools an in-browser AI agent can discover and invoke. Native support
- * currently ships only behind flags (ChatGPT's in-app browser, Chrome 149+ with
- * `chrome://flags/#enable-webmcp-testing`). This polyfill provides a compatible
- * `document.modelContext` implementation when the real one is absent, so CoCanvas
- * runs — and can be demonstrated — in any modern browser while remaining a
- * first-class citizen when a real agent is present.
+ * Native support is limited (ChatGPT's in-app browser, Chrome 149+ with
+ * `chrome://flags/#enable-webmcp-testing`). When that API is missing, this
+ * module installs a compatible implementation so page tools still run.
  *
- * Spec reference: https://webmachinelearning.github.io/webmcp/
+ * Spec: https://webmachinelearning.github.io/webmcp/
  */
 
 export interface JSONSchema {
@@ -54,7 +50,7 @@ export interface ModelContextLike extends EventTarget {
   registerTool(tool: ToolDefinition, options?: RegisterOptions): Promise<void> | void;
   getTools(): Promise<RegisteredTool[]> | RegisteredTool[];
   executeTool(nameOrTool: string | RegisteredTool, input?: unknown): Promise<ToolResult>;
-  /** Non-standard escape hatch used by the polyfill's built-in agent console. */
+  /** Present on the polyfill so the page can tell it from a native host. */
   __isPolyfill?: boolean;
 }
 
@@ -124,7 +120,9 @@ class PolyfillModelContext extends EventTarget implements ModelContextLike {
       typeof input === "string" && input.trim().length
         ? safeParse(input)
         : input ?? {};
-    const result = await tool.execute(parsed, {});
+    const args =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    const result = await tool.execute(args, {});
     return result;
   }
 }
@@ -153,7 +151,7 @@ export function ensureModelContext(): EnsureResult {
 
   const native = doc.modelContext ?? nav.modelContext;
   if (native && typeof native.registerTool === "function") {
-    return { modelContext: native, polyfilled: false };
+    return { modelContext: native, polyfilled: Boolean(native.__isPolyfill) };
   }
 
   const polyfill = new PolyfillModelContext();
