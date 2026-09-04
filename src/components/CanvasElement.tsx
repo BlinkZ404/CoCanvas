@@ -1,7 +1,9 @@
 import { useLayoutEffect, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { resizeByHandle, scrollBoardFromPointer, type ResizeHandle } from "../geometry/board";
-import { elementName } from "../labels";
+import { elementName, headingLines } from "../labels";
+import { boardPointFromClient } from "../placeShape";
 import { useCanvasStore } from "../store/canvasStore";
+import { rectangleRole } from "../design";
 import { inkOnBoard, luminance } from "../theme";
 import type { CanvasElement } from "../types";
 
@@ -25,7 +27,7 @@ const CURSOR: Record<ResizeHandle, string> = {
 };
 
 export function CanvasElementView({ element, surfaceRef }: Props) {
-  const selectedId = useCanvasStore((s) => s.selectedId);
+  const selectedIds = useCanvasStore((s) => s.selectedIds ?? []);
   const select = useCanvasStore((s) => s.select);
   const moveElement = useCanvasStore((s) => s.moveElement);
   const updateElement = useCanvasStore((s) => s.updateElement);
@@ -54,8 +56,9 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
     my: number;
   } | null>(null);
 
-  const selected = selectedId === element.id;
+  const selected = selectedIds.includes(element.id);
   const connectFrom = connectFromId === element.id;
+  const showHandles = selected && selectedIds.length === 1;
 
   function onPointerDown(e: React.PointerEvent) {
     e.stopPropagation();
@@ -63,18 +66,27 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
       pickConnect(element.id);
       return;
     }
-    select(element.id, "human");
+    if (e.shiftKey) select(element.id, "human", { additive: true });
+    else if (!selectedIds.includes(element.id)) select(element.id, "human");
     const target = e.target as HTMLElement;
     if (target.isContentEditable) return;
     if (e.button !== 0) return;
     const surface = surfaceRef.current;
     if (!surface) return;
+    const live = useCanvasStore.getState();
+    const nodeIds = new Set(live.elements.map((item) => item.id));
+    const group = live.selectedIds.filter((id) => nodeIds.has(id));
+    if (!group.includes(element.id)) return;
+    const origins = group
+      .map((id) => live.elements.find((item) => item.id === id))
+      .filter((item): item is CanvasElement => Boolean(item))
+      .map((item) => ({ id: item.id, x: item.x, y: item.y }));
     useCanvasStore.getState().beginGesture();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    const rect = surface.getBoundingClientRect();
+    const start = boardPointFromClient(surface, e.clientX, e.clientY);
     dragState.current = {
-      dx: e.clientX - rect.left - element.x + surface.scrollLeft,
-      dy: e.clientY - rect.top - element.y + surface.scrollTop,
+      dx: start.x - element.x,
+      dy: start.y - element.y,
       ox: element.x,
       oy: element.y,
       moved: false,
@@ -83,15 +95,19 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
     function onMove(ev: PointerEvent) {
       if (!dragState.current || !surface) return;
       scrollBoardFromPointer(surface, ev.clientX, ev.clientY);
-      const r = surface.getBoundingClientRect();
-      const x = Math.max(0, Math.round(ev.clientX - r.left - dragState.current.dx + surface.scrollLeft));
-      const y = Math.max(0, Math.round(ev.clientY - r.top - dragState.current.dy + surface.scrollTop));
+      const now = boardPointFromClient(surface, ev.clientX, ev.clientY);
+      const x = Math.max(0, Math.round(now.x - dragState.current.dx));
+      const y = Math.max(0, Math.round(now.y - dragState.current.dy));
       if (!dragState.current.moved) {
         const dist = Math.hypot(x - dragState.current.ox, y - dragState.current.oy);
         if (dist < DRAG_THRESHOLD) return;
         dragState.current.moved = true;
       }
-      moveElement(element.id, x, y, "human", { log: false });
+      const dx = x - dragState.current.ox;
+      const dy = y - dragState.current.oy;
+      for (const origin of origins) {
+        moveElement(origin.id, origin.x + dx, origin.y + dy, "human", { log: false });
+      }
     }
     function onUp() {
       const drag = dragState.current;
@@ -100,8 +116,13 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
       if (drag?.moved) {
-        const live = useCanvasStore.getState().elements.find((e) => e.id === element.id) ?? element;
-        useCanvasStore.getState().log("human", `moved ${elementName(live)}`);
+        const count = origins.length;
+        useCanvasStore.getState().log(
+          "human",
+          count === 1
+            ? `moved ${elementName(useCanvasStore.getState().elements.find((item) => item.id === element.id) ?? element)}`
+            : `moved ${count} nodes`
+        );
       }
       useCanvasStore.getState().endGesture();
     }
@@ -115,16 +136,20 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
     e.preventDefault();
     if (connectArmed) return;
     if (e.button !== 0) return;
+    const board = surfaceRef.current;
+    if (!board) return;
+    const surface: HTMLElement = board;
     select(element.id, "human");
     useCanvasStore.getState().beginGesture();
+    const start = boardPointFromClient(surface, e.clientX, e.clientY);
     resizeState.current = {
       handle,
       x: element.x,
       y: element.y,
       w: element.width,
       h: element.height,
-      mx: e.clientX,
-      my: e.clientY,
+      mx: start.x,
+      my: start.y,
     };
     document.body.style.cursor = CURSOR[handle];
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -132,9 +157,9 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
     function onMove(ev: PointerEvent) {
       const s = resizeState.current;
       if (!s) return;
-      const surface = surfaceRef.current;
-      if (surface) scrollBoardFromPointer(surface, ev.clientX, ev.clientY);
-      const next = resizeByHandle(s, s.handle, ev.clientX - s.mx, ev.clientY - s.my);
+      scrollBoardFromPointer(surface, ev.clientX, ev.clientY);
+      const now = boardPointFromClient(surface, ev.clientX, ev.clientY);
+      const next = resizeByHandle(s, s.handle, now.x - s.mx, now.y - s.my);
       updateElement(element.id, next, "human", { log: false });
     }
     function onUp() {
@@ -169,9 +194,10 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
     updateElement(element.id, { text }, "human", { log: false });
   }
 
-  const cls = `el el-${element.kind}${selected ? " el-selected" : ""}${connectFrom ? " el-connect-from" : ""}`;
+  const role = rectangleRole(element);
+  const cls = `el el-${element.kind}${selected ? " el-selected" : ""}${connectFrom ? " el-connect-from" : ""}${role ? ` is-${role}` : ""}`;
 
-  const handles = selected ? (
+  const handles = showHandles ? (
     <div className="el-handles">
       {HANDLES.map((handle) => (
         <button
@@ -259,13 +285,24 @@ export function CanvasElementView({ element, surfaceRef }: Props) {
         background: element.fill,
         borderColor: element.stroke,
         color: contrastText(element.fill),
-        borderRadius: element.kind === "ellipse" ? "50%" : 14,
+        borderRadius: element.kind === "ellipse" ? "50%" : undefined,
         fontSize: element.fontSize,
       }}
       {...chrome}
     >
-      <span className="shape-label">{element.text}</span>
+      <NodeLabel text={element.text} />
     </NodeShell>
+  );
+}
+
+function NodeLabel({ text }: { text: string }) {
+  const { kicker, detail } = headingLines(text);
+  if (!kicker) return <span className="shape-label">{detail}</span>;
+  return (
+    <span className="shape-label is-stacked">
+      <span className="shape-kicker">{kicker}</span>
+      <span className="shape-detail">{detail}</span>
+    </span>
   );
 }
 

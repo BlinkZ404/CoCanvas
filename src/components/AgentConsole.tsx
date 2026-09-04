@@ -2,11 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useCanvasStore } from "../store/canvasStore";
 import type { Finding, ReviewReport } from "../review/reviewCanvas";
 import { popConfirmBypass, pushConfirmBypass } from "../confirmAction";
-import { SAMPLE_BRIEF } from "../webmcp/registerTools";
+import { copyText } from "../clipboard";
+import { libraryOf, SAMPLE_BRIEF, type LibraryPrompt } from "../guide";
 import { resultToText, type ModelContextLike, type RegisteredTool } from "../webmcp/polyfill";
-import { CHATGPT_PROMPT } from "../guide";
-import { LIGHT_BOARD } from "../theme";
-import { IconFlow, IconGap, IconKanban, IconLayout, IconNote, IconReview } from "./Icons";
+import { IconCheck, IconCopy, IconGap, IconNote, IconReview } from "./Icons";
 
 interface Props {
   modelContext: ModelContextLike | null;
@@ -78,28 +77,6 @@ const AGENT_TASKS: { label: string; hint: string; icon: ReactNode; steps: Step[]
     icon: <IconReview size={18} />,
     steps: [{ tool: "review_canvas" }],
   },
-  {
-    label: "Login screen",
-    hint: "Frame, fields, CTA",
-    icon: <IconLayout size={18} />,
-    steps: [{ tool: "clear_canvas" }, { tool: "create_layout", args: { template: "login" } }],
-  },
-  {
-    label: "Kanban board",
-    hint: "Three columns",
-    icon: <IconKanban size={18} />,
-    steps: [
-      { tool: "clear_canvas" },
-      { tool: "set_background", args: { color: LIGHT_BOARD } },
-      { tool: "create_layout", args: { template: "kanban" } },
-    ],
-  },
-  {
-    label: "Flowchart",
-    hint: "Start to end",
-    icon: <IconFlow size={18} />,
-    steps: [{ tool: "clear_canvas" }, { tool: "create_layout", args: { template: "flowchart" } }],
-  },
 ];
 
 let lineId = 0;
@@ -126,19 +103,18 @@ export function AgentConsole({ modelContext }: Props) {
   const [argText, setArgText] = useState<string>("{}");
   const [running, setRunning] = useState<string | null>(null);
   const [review, setReview] = useState<ReviewReport | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const activity = useCanvasStore((s) => s.activity);
   const briefReady = useCanvasStore((s) => s.brief.trim().length > 0);
   const logRef = useRef<HTMLDivElement>(null);
 
-  async function copyPrompt() {
-    try {
-      await navigator.clipboard.writeText(CHATGPT_PROMPT);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    } catch {
-      setCopied(false);
-    }
+  async function copyLibraryPrompt(row: LibraryPrompt) {
+    if (row.brief) useCanvasStore.getState().setBrief(row.brief, "human");
+    if (!(await copyText(row.prompt))) return;
+    setCopiedId(row.id);
+    window.setTimeout(() => {
+      setCopiedId((prev) => (prev === row.id ? null : prev));
+    }, 1400);
   }
 
   const refreshTools = useCallback(() => {
@@ -228,15 +204,21 @@ export function AgentConsole({ modelContext }: Props) {
   }, [lines]);
 
   return (
-    <section className="panel agent-console">
+    <section id="agent-panel" className="panel agent-console">
       <div className="inspector-head">
         <h2>Agent</h2>
       </div>
-      <p className="muted small agent-lead">Page tools. Same ones ChatGPT calls.</p>
-      <button type="button" className="guide-copy agent-copy" onClick={copyPrompt}>
-        {copied ? "Copied" : "Copy prompt"}
-      </button>
+      <p className="muted small agent-lead">
+        Astra is the ChatGPT prompt. The other three are short demos.
+      </p>
 
+      <h3 className="agent-subhead">Prompt</h3>
+      <LibraryRows rows={libraryOf("prompt")} copiedId={copiedId} onCopy={copyLibraryPrompt} />
+
+      <h3 className="agent-subhead">Demo</h3>
+      <LibraryRows rows={libraryOf("demo")} copiedId={copiedId} onCopy={copyLibraryPrompt} />
+
+      <h3 className="agent-subhead">On this page</h3>
       <div className="agent-tasks">
         {AGENT_TASKS.map((task) => {
           const needsBrief = task.label === "Draft from brief" || task.label === "Review board";
@@ -350,10 +332,14 @@ function ReviewFindings({ report }: { report: ReviewReport }) {
 const FINDING_KIND: Record<string, string> = {
   brief_gap: "Missing from brief",
   unlabeled: "No label",
+  no_diagram: "No diagram",
   orphan: "Off the path",
   no_start: "No start",
   no_end: "No end",
   overlap: "Overlap",
+  score_link: "Score arrow",
+  side_link: "Side arrow",
+  wide_hub: "Stretched hub",
   empty: "Empty board",
   no_brief: "No brief",
   open_pins: "Open pins",
@@ -365,5 +351,41 @@ function FindingRow({ finding }: { finding: Finding }) {
       <span className="finding-kind">{FINDING_KIND[finding.code] ?? "Note"}</span>
       <span>{finding.message}</span>
     </li>
+  );
+}
+
+function LibraryRows({
+  rows,
+  copiedId,
+  onCopy,
+}: {
+  rows: LibraryPrompt[];
+  copiedId: string | null;
+  onCopy: (row: LibraryPrompt) => void;
+}) {
+  return (
+    <ul className="prompt-library">
+      {rows.map((row) => {
+        const justCopied = copiedId === row.id;
+        return (
+          <li key={row.id}>
+            <button
+              type="button"
+              className="library-row"
+              onClick={() => onCopy(row)}
+              aria-label={justCopied ? `Copied: ${row.title}` : `Copy prompt: ${row.title}`}
+            >
+              <span className="agent-task-copy">
+                <span className="agent-task-label">{row.title}</span>
+                <span className="agent-task-hint">{row.hint}</span>
+              </span>
+              <span className="library-row-copy" aria-hidden>
+                {justCopied ? <IconCheck size={15} /> : <IconCopy size={15} />}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

@@ -1,8 +1,9 @@
 import { confirmAction } from "../confirmAction";
+import { downloadBoardPng } from "../exportBoard";
 import { clientHitsSurface, placeShapeAt } from "../placeShape";
 import { useCanvasStore } from "../store/canvasStore";
 import type { ElementKind } from "../types";
-import { IconConnect, IconTrash } from "./Icons";
+import { IconConnect, IconExport, IconTrash } from "./Icons";
 
 const TOOLS: { kind: ElementKind; label: string }[] = [
   { kind: "frame", label: "Frame" },
@@ -114,18 +115,37 @@ export function Toolbar() {
           <span className="tool-caption">Connect</span>
         </button>
       </div>
-      <button
-        className="tool-btn tool-danger"
-        disabled={!hasContent}
-        onClick={() => void onClear()}
-        title="Clear canvas"
-        aria-label="Clear canvas"
-      >
-        <span className="tool-icon">
-          <IconTrash size={22} />
-        </span>
-        <span className="tool-caption">Clear</span>
-      </button>
+      <div className="toolbar-foot">
+        <button
+          className="tool-btn"
+          disabled={!hasContent}
+          onClick={() => {
+            const s = useCanvasStore.getState();
+            void downloadBoardPng(s).then((name) => {
+              useCanvasStore.getState().log("human", `exported ${name}`);
+            });
+          }}
+          title="Export PNG"
+          aria-label="Export PNG"
+        >
+          <span className="tool-icon">
+            <IconExport size={22} />
+          </span>
+          <span className="tool-caption">Export</span>
+        </button>
+        <button
+          className="tool-btn tool-danger"
+          disabled={!hasContent}
+          onClick={() => void onClear()}
+          title="Clear canvas"
+          aria-label="Clear canvas"
+        >
+          <span className="tool-icon">
+            <IconTrash size={22} />
+          </span>
+          <span className="tool-caption">Clear</span>
+        </button>
+      </div>
     </aside>
   );
 }

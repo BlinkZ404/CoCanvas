@@ -10,6 +10,8 @@ describe("Inspector", () => {
     render(<Inspector />);
     expect(screen.getByRole("heading", { name: "Properties" })).toBeInTheDocument();
     expect(screen.getByText("Select a shape to edit.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Properties" }).closest(".inspector")).toHaveClass("is-empty");
+    expect(screen.getByRole("button", { name: "Void" })).toBeInTheDocument();
   });
 
   it("edits label and clamps width to the minimum", async () => {
@@ -26,6 +28,15 @@ describe("Inspector", () => {
     const width = screen.getByLabelText("W");
     fireEvent.change(width, { target: { value: "10" } });
     expect(useCanvasStore.getState().elements[0].width).toBe(MIN_NODE_W);
+  });
+
+  it("shows a group inspector when several nodes are selected", () => {
+    const a = useCanvasStore.getState().addElement({ kind: "rectangle", text: "A" }, "human");
+    const b = useCanvasStore.getState().addElement({ kind: "ellipse", text: "B" }, "human");
+    useCanvasStore.getState().selectMany([a.id, b.id]);
+    render(<Inspector />);
+    expect(screen.getByRole("heading", { name: "2 selected" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Label")).not.toBeInTheDocument();
   });
 
   it("shows connector controls when an arrow is selected", () => {

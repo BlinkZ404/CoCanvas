@@ -23,6 +23,15 @@ describe("Toolbar", () => {
     expect(connectButtons[connectButtons.length - 1]).toBeEnabled();
   });
 
+  it("offers Export PNG once the board has content", () => {
+    render(<Toolbar />);
+    expect(screen.getByRole("button", { name: "Export PNG" })).toBeDisabled();
+    useCanvasStore.getState().addElement({ kind: "rectangle" }, "human");
+    render(<Toolbar />);
+    const exportButtons = screen.getAllByRole("button", { name: "Export PNG" });
+    expect(exportButtons[exportButtons.length - 1]).toBeEnabled();
+  });
+
   it("clears the board after confirm", async () => {
     const user = userEvent.setup();
     useCanvasStore.getState().addElement({ kind: "text" }, "human");

@@ -30,6 +30,16 @@ describe("App", () => {
     expect(useCanvasStore.getState().elements).toHaveLength(1);
   });
 
+  it("selects every node with Control+A", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Add Rectangle" }));
+    await user.click(screen.getByRole("button", { name: "Add Ellipse" }));
+    await user.keyboard("{Control>}a{/Control}");
+    expect(useCanvasStore.getState().selectedIds).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "2 selected" })).toBeInTheDocument();
+  });
+
   it("undoes with the keyboard", async () => {
     const user = userEvent.setup();
     render(<App />);

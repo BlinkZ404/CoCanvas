@@ -1,19 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { AGENT_PROMPTS, CONNECT_HINT } from "../guide";
+import { copyText } from "../clipboard";
+import { CONNECT_HINT, libraryOf, type LibraryPrompt } from "../guide";
+import { useCanvasStore } from "../store/canvasStore";
 import { IconCheck, IconClose, IconCopy } from "./Icons";
-
-function fallbackCopy(text: string) {
-  const el = document.createElement("textarea");
-  el.value = text;
-  el.setAttribute("readonly", "");
-  el.style.position = "fixed";
-  el.style.left = "-9999px";
-  document.body.append(el);
-  el.select();
-  const ok = document.execCommand("copy");
-  el.remove();
-  if (!ok) throw new Error("Clipboard copy failed");
-}
 
 function focusableIn(root: HTMLElement) {
   return [...root.querySelectorAll<HTMLElement>(
@@ -78,21 +67,19 @@ export function ConnectGuide({ open, onClose }: Props) {
   }, [open, onClose]);
 
   async function copyPrompt(text: string) {
-    try {
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
-      else fallbackCopy(text);
-    } catch {
-      try {
-        fallbackCopy(text);
-      } catch {
-        setCopied(null);
-        return;
-      }
+    if (!(await copyText(text))) {
+      setCopied(null);
+      return;
     }
     setCopied(text);
     window.setTimeout(() => {
       setCopied((prev) => (prev === text ? null : prev));
     }, 1400);
+  }
+
+  function pickLibraryRow(row: LibraryPrompt) {
+    if (row.brief) useCanvasStore.getState().setBrief(row.brief, "human");
+    void copyPrompt(row.prompt);
   }
 
   if (!open) return null;
@@ -118,13 +105,38 @@ export function ConnectGuide({ open, onClose }: Props) {
           {CONNECT_HINT}
         </p>
       </div>
-      <ul className="connect-prompts">
-        {AGENT_PROMPTS.map((prompt) => {
-          const justCopied = copied === prompt;
+      <div className="connect-prompts">
+        <ConnectPromptGroup label="Prompt" rows={libraryOf("prompt")} copied={copied} onPick={pickLibraryRow} />
+        <ConnectPromptGroup label="Demo" rows={libraryOf("demo")} copied={copied} onPick={pickLibraryRow} />
+      </div>
+    </div>
+  );
+}
+
+function ConnectPromptGroup({
+  label,
+  rows,
+  copied,
+  onPick,
+}: {
+  label: string;
+  rows: LibraryPrompt[];
+  copied: string | null;
+  onPick: (row: LibraryPrompt) => void;
+}) {
+  return (
+    <div className="connect-prompt-group">
+      <h3 className="connect-group-label">{label}</h3>
+      <ul>
+        {rows.map((row) => {
+          const justCopied = copied === row.prompt;
           return (
-            <li key={prompt}>
-              <button type="button" className="connect-prompt" onClick={() => copyPrompt(prompt)}>
-                <span>{prompt}</span>
+            <li key={row.id}>
+              <button type="button" className="connect-prompt" onClick={() => onPick(row)}>
+                <span>
+                  <span className="connect-prompt-title">{row.title}</span>
+                  <span className="connect-prompt-hint">{row.hint}</span>
+                </span>
                 <span className="connect-prompt-copy" aria-hidden>
                   {justCopied ? <IconCheck size={15} /> : <IconCopy size={15} />}
                 </span>

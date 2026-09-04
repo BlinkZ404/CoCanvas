@@ -15,7 +15,7 @@ export function BriefBar() {
         id="canvas-brief"
         type="text"
         value={brief}
-        placeholder="Grocery checkout with cart, address, payment, success"
+        placeholder="Open the Astra post, then draw a map on this board"
         onFocus={() => {
           started.current = useCanvasStore.getState().brief;
           useCanvasStore.getState().beginGesture();

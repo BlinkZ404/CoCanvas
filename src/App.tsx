@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { AgentConsole } from "./components/AgentConsole";
 import { Canvas } from "./components/Canvas";
 import { Inspector } from "./components/Inspector";
+import { MobileDock, type DockTab } from "./components/MobileDock";
 import { Toolbar } from "./components/Toolbar";
 import { TopBar } from "./components/TopBar";
 import { confirmAction } from "./confirmAction";
+import { downloadBoardPng } from "./exportBoard";
 import { KIND_LABEL } from "./labels";
 import { useCanvasStore } from "./store/canvasStore";
-import { registerCoCanvasTools, type RegistrationInfo } from "./webmcp/registerTools";
+import { registerCoCanvasTools, subscribeRegistration, type RegistrationInfo } from "./webmcp/registerTools";
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -18,16 +20,18 @@ function isTypingTarget(target: EventTarget | null) {
 
 export default function App() {
   const [reg, setReg] = useState<RegistrationInfo | null>(null);
+  const [dockTab, setDockTab] = useState<DockTab | null>(null);
+  const selectedId = useCanvasStore((s) => s.selectedId);
+  const selectedCount = useCanvasStore((s) => s.selectedIds.length);
 
   useEffect(() => {
-    let info: RegistrationInfo;
     try {
-      info = registerCoCanvasTools();
+      setReg(registerCoCanvasTools());
     } catch {
       setReg(null);
       return;
     }
-    setReg(info);
+    return subscribeRegistration(setReg);
   }, []);
 
   useEffect(() => {
@@ -43,6 +47,8 @@ export default function App() {
       }
       const id = store.selectedId;
       const el = id ? store.elements.find((item) => item.id === id) : undefined;
+      const nodeIds = new Set(store.elements.map((item) => item.id));
+      const group = store.selectedIds.filter((sid) => nodeIds.has(sid));
       const mod = e.metaKey || e.ctrlKey;
       const typing = isTypingTarget(e.target);
 
@@ -54,6 +60,20 @@ export default function App() {
           e.preventDefault();
           store.layerElement(el.id, e.key === "]" ? "front" : "back", "human");
         }
+        return;
+      }
+
+      if (mod && (e.key === "a" || e.key === "A")) {
+        e.preventDefault();
+        store.selectMany(store.elements.map((item) => item.id));
+        return;
+      }
+
+      if (mod && (e.key === "e" || e.key === "E") && store.elements.length > 0) {
+        e.preventDefault();
+        void downloadBoardPng(store).then((name) => {
+          useCanvasStore.getState().log("human", `exported ${name}`);
+        });
         return;
       }
 
@@ -75,37 +95,54 @@ export default function App() {
         return;
       }
 
-      if ((e.key === "Delete" || e.key === "Backspace") && id) {
+      if ((e.key === "Delete" || e.key === "Backspace") && (group.length || id)) {
         e.preventDefault();
+        if (group.length > 1) {
+          void confirmAction({
+            title: "Delete these nodes?",
+            body: `Delete ${group.length} nodes and any arrows or pins on them.`,
+            confirmLabel: "Delete",
+          }).then((yes) => {
+            if (yes) useCanvasStore.getState().deleteElements(group, "human");
+          });
+          return;
+        }
         if (el) {
           void confirmAction({
             title: "Delete this node?",
             body: `Delete this ${KIND_LABEL[el.kind]} and any arrows or pins on it.`,
             confirmLabel: "Delete",
           }).then((yes) => {
-            if (yes) useCanvasStore.getState().deleteElement(id, "human");
+            if (yes) useCanvasStore.getState().deleteElement(id!, "human");
           });
           return;
         }
-        void confirmAction({
-          title: "Delete this connector?",
-          body: "Remove this arrow from the board.",
-          confirmLabel: "Delete",
-        }).then((yes) => {
-          if (yes) useCanvasStore.getState().deleteConnector(id, "human");
-        });
+        if (id) {
+          void confirmAction({
+            title: "Delete this connector?",
+            body: "Remove this arrow from the board.",
+            confirmLabel: "Delete",
+          }).then((yes) => {
+            if (yes) useCanvasStore.getState().deleteConnector(id, "human");
+          });
+        }
         return;
       }
 
-      if (!el) return;
+      if (!el && group.length === 0) return;
 
-      if (mod && (e.key === "d" || e.key === "D")) {
+      if (mod && (e.key === "d" || e.key === "D") && group.length) {
         e.preventDefault();
-        store.duplicateElement(el.id, "human");
+        store.beginGesture();
+        const copies = group
+          .map((sid) => store.duplicateElement(sid, "human"))
+          .filter((copy): copy is NonNullable<typeof copy> => Boolean(copy));
+        store.endGesture();
+        store.selectMany(copies.map((copy) => copy.id));
         return;
       }
 
-      if (e.key === "]" || e.key === "[") {
+      if (el && (e.key === "]" || e.key === "[")) {
         e.preventDefault();
         if (mod && e.key === "]") store.layerElement(el.id, "front", "human");
         else if (mod && e.key === "[") store.layerElement(el.id, "back", "human");
@@ -122,13 +159,15 @@ export default function App() {
         ArrowDown: [0, 1],
       };
       const dir = nudge[e.key];
-      if (dir) {
+      if (dir && group.length) {
         e.preventDefault();
         if (!nudgeHeld) {
           nudgeHeld = true;
           store.beginGesture();
         }
-        store.nudgeElement(el.id, dir[0] * step, dir[1] * step, "human", { log: false });
+        for (const sid of group) {
+          store.nudgeElement(sid, dir[0] * step, dir[1] * step, "human", { log: false });
+        }
         window.clearTimeout(nudgeTimer);
         nudgeTimer = window.setTimeout(() => {
           useCanvasStore.getState().endGesture();
@@ -143,6 +182,12 @@ export default function App() {
       if (nudgeHeld) useCanvasStore.getState().endGesture();
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedId && selectedCount === 0) return;
+    if (typeof window === "undefined" || !window.matchMedia("(max-width: 640px)").matches) return;
+    setDockTab((tab) => (tab === "agent" ? "agent" : "properties"));
+  }, [selectedId, selectedCount]);
 
   // Pin the chrome. Only the board should scroll.
   useEffect(() => {
@@ -184,9 +229,15 @@ export default function App() {
         <div className="canvas-col">
           <Canvas />
         </div>
-        <aside className="side" aria-label="Inspector and agent">
-          <Inspector />
-          <AgentConsole modelContext={reg?.modelContext ?? null} />
+        <aside
+          className={`side${dockTab ? ` is-open dock-${dockTab}` : " is-collapsed"}`}
+          aria-label="Inspector and agent"
+        >
+          <MobileDock tab={dockTab} onChange={setDockTab} />
+          <div className="dock-panels">
+            <Inspector />
+            <AgentConsole modelContext={reg?.modelContext ?? null} />
+          </div>
         </aside>
       </div>
     </div>

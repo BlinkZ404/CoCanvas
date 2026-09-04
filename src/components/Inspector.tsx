@@ -3,7 +3,7 @@ import { confirmAction } from "../confirmAction";
 import { MIN_NODE_H, MIN_NODE_W } from "../geometry/board";
 import { KIND_LABEL, elementName, kindWord } from "../labels";
 import { useCanvasStore, type AlignEdge, type LayerAction } from "../store/canvasStore";
-import { DARK_BOARD, LIGHT_BOARD } from "../theme";
+import { DARK_BOARD, INK_BOARD, LIGHT_BOARD } from "../theme";
 import type { CanvasElement } from "../types";
 
 const BACKGROUNDS = [
@@ -11,7 +11,7 @@ const BACKGROUNDS = [
   { label: "Cool", value: "#eef1f6" },
   { label: "Mist", value: "#e8eee9" },
   { label: "Night", value: DARK_BOARD },
-  { label: "Ink", value: "#12141a" },
+  { label: "Void", value: INK_BOARD },
 ];
 
 const LAYER_ACTIONS: { action: LayerAction; label: string }[] = [
@@ -32,10 +32,13 @@ const ALIGN_EDGES: { edge: AlignEdge; label: string }[] = [
 
 export function Inspector() {
   const selectedId = useCanvasStore((s) => s.selectedId);
+  const selectedIds = useCanvasStore((s) => s.selectedIds ?? []);
+  const selectedNodes = useCanvasStore((s) => s.elements.filter((e) => (s.selectedIds ?? []).includes(e.id)));
   const element = useCanvasStore((s) => s.elements.find((e) => e.id === selectedId) ?? null);
   const connector = useCanvasStore((s) => s.connectors.find((c) => c.id === selectedId) ?? null);
   const updateElement = useCanvasStore((s) => s.updateElement);
   const deleteElement = useCanvasStore((s) => s.deleteElement);
+  const deleteElements = useCanvasStore((s) => s.deleteElements);
   const layerElement = useCanvasStore((s) => s.layerElement);
   const duplicateElement = useCanvasStore((s) => s.duplicateElement);
   const alignElement = useCanvasStore((s) => s.alignElement);
@@ -54,9 +57,38 @@ export function Inspector() {
     return { index: ordered.findIndex((e) => e.id === element.id) + 1, total: ordered.length };
   });
 
+  const panelClass =
+    selectedNodes.length > 0 || element || connector ? "panel inspector" : "panel inspector is-empty";
+
+  if (selectedNodes.length > 1) {
+    return (
+      <section id="inspector-panel" className={panelClass}>
+        <div className="inspector-head">
+          <h2>{selectedNodes.length} selected</h2>
+        </div>
+        <p className="muted small inspector-empty">
+          Drag to move them together. Shift-click to add or remove. Ctrl or Cmd+A selects all.
+        </p>
+        <button
+          className="btn-ghost-danger"
+          onClick={async () => {
+            const yes = await confirmAction({
+              title: "Delete these nodes?",
+              body: `Delete ${selectedNodes.length} nodes and any arrows or pins on them.`,
+              confirmLabel: "Delete",
+            });
+            if (yes) deleteElements(selectedIds, "human");
+          }}
+        >
+          Delete
+        </button>
+      </section>
+    );
+  }
+
   if (connector && !element) {
     return (
-      <section className="panel inspector">
+      <section id="inspector-panel" className={panelClass}>
         <div className="inspector-head">
           <h2>Connector</h2>
         </div>
@@ -107,7 +139,7 @@ export function Inspector() {
 
   if (!element) {
     return (
-      <section className="panel inspector">
+      <section id="inspector-panel" className={panelClass}>
         <h2>Properties</h2>
         <p className="muted small inspector-empty">Select a shape to edit.</p>
         <label className="field">
@@ -123,11 +155,11 @@ export function Inspector() {
             <button
               key={bg.value}
               type="button"
-              className={`swatch${background.toLowerCase() === bg.value ? " is-active" : ""}`}
+              className={`swatch${background.trim().toLowerCase() === bg.value.toLowerCase() ? " is-active" : ""}`}
               style={{ background: bg.value }}
               title={bg.label}
               aria-label={bg.label}
-              aria-pressed={background.toLowerCase() === bg.value}
+              aria-pressed={background.trim().toLowerCase() === bg.value.toLowerCase()}
               onClick={() => setBackground(bg.value, "human")}
             />
           ))}
@@ -142,15 +174,15 @@ export function Inspector() {
   const sizeH = (v: string) => Math.max(MIN_NODE_H, num(v));
 
   return (
-    <section className="panel inspector">
+    <section id="inspector-panel" className={panelClass}>
       <div className="inspector-head">
         <h2>{KIND_LABEL[element.kind]}</h2>
       </div>
 
       <label className="field">
         <span>Label</span>
-        <input
-          type="text"
+        <textarea
+          rows={3}
           value={element.text}
           onFocus={() => {
             fieldStart.current = element.text;

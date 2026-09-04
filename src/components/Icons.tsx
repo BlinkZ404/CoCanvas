@@ -10,6 +10,16 @@ const stroke = {
   strokeLinejoin: "round" as const,
 };
 
+export function IconExport({ size = 18 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
+      <path d="M12 4.5v10.2" />
+      <path d="m8.4 8.1 3.6-3.6 3.6 3.6" />
+      <path d="M6 16.8v1.4A1.8 1.8 0 0 0 7.8 20h8.4A1.8 1.8 0 0 0 18 18.2v-1.4" />
+    </svg>
+  );
+}
+
 export function IconTrash({ size = 18 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
@@ -55,6 +65,25 @@ export function IconKanban({ size = 16 }: IconProps) {
       <rect x="4.5" y="5" width="4.5" height="14" rx="1.25" />
       <rect x="9.75" y="5" width="4.5" height="9" rx="1.25" />
       <rect x="15" y="5" width="4.5" height="11.5" rx="1.25" />
+    </svg>
+  );
+}
+
+export function IconFrontier({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
+      <path d="M5 17.5h3.2V8.5H5zM10.4 17.5h3.2V5.5h-3.2zM15.8 17.5H19v-6.2h-3.2z" />
+    </svg>
+  );
+}
+
+export function IconModels({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...stroke}>
+      <rect x="8.5" y="4.5" width="7" height="4.5" rx="1.2" />
+      <rect x="3.5" y="15" width="6" height="4.5" rx="1.2" />
+      <rect x="14.5" y="15" width="6" height="4.5" rx="1.2" />
+      <path d="M12 9v3.2M6.5 15v-2.8h11V15" />
     </svg>
   );
 }
@@ -176,12 +205,5 @@ export function IconCheck({ size = 16 }: IconProps) {
 }
 
 export function LogoMark() {
-  return (
-    <svg className="logo-mark" viewBox="0 0 24 24" aria-hidden>
-      <rect x="2" y="2" width="20" height="20" rx="6" fill="var(--logo-bg)" />
-      <circle cx="9" cy="12" r="2.05" fill="none" stroke="var(--logo-fg)" strokeWidth="1.5" />
-      <circle cx="15" cy="12" r="2.05" fill="none" stroke="var(--logo-fg)" strokeWidth="1.5" />
-      <path d="M11.05 12h1.9" fill="none" stroke="var(--logo-fg)" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
+  return <img className="logo-mark" src="/logo.png" alt="" width={28} height={28} />;
 }
