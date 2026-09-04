@@ -1,11 +1,13 @@
 import { confirmAction } from "../confirmAction";
+import { downloadBoardPng } from "../exportBoard";
 import { KIND_LABEL, type AlignEdge, type LayerAction } from "../labels";
-import { briefTerms, reviewCanvas } from "../review/reviewCanvas";
+import { sketchFromBrief } from "../layouts/draft";
+import { blockedConnectorReason, reviewCanvas } from "../review/reviewCanvas";
 import { useCanvasStore, type CanvasState } from "../store/canvasStore";
-import { readThemePref, resolveTheme, stockBoardForTheme } from "../theme";
 import type { CanvasElement, ElementKind } from "../types";
 import {
-  ensureModelContext,
+  createPageModelContext,
+  detectNativeModelContext,
   resultToText,
   type JSONSchema,
   type ModelContextLike,
@@ -18,8 +20,7 @@ const KINDS: ElementKind[] = ["frame", "rectangle", "ellipse", "text", "sticky"]
 const OUTPUT_BUDGET = 1500;
 const LIST_CAP = 24;
 
-export const SAMPLE_BRIEF =
-  "Grocery checkout: cart review, delivery address, payment, order success. Every step labeled. One path through.";
+export { CHATGPT_BRIEF, FRONTIER_BRIEF, MODELS_BRIEF, SAMPLE_BRIEF } from "../guide";
 
 function store() {
   return useCanvasStore.getState();
@@ -99,6 +100,7 @@ function isAvailable(name: string, s: CanvasState): boolean {
     case "layer_element":
     case "duplicate_element":
     case "align_element":
+    case "export_png":
       return n > 0;
     case "list_pins":
       return s.pins.length > 0;
@@ -125,66 +127,22 @@ function gateKey(s: CanvasState): string {
   ].join(":");
 }
 
-function themeBoard() {
-  return stockBoardForTheme(resolveTheme(readThemePref()));
-}
-
 function draftFromBrief(brief: string) {
-  const terms = briefTerms(brief);
   const s = store();
   s.beginAgentBatch();
   try {
-  s.resetView();
-  s.setBackground(themeBoard(), "agent");
-  s.addElement(
-    {
-      kind: "text",
-      x: 40,
-      y: 32,
-      width: 520,
-      height: 32,
-      text: brief.trim().slice(0, 48) || "Flow",
-      fill: "#1a1a1e",
-      fontSize: 22,
-    },
-    "agent"
-  );
-
-  const steps = terms.length ? terms.slice(0, 6) : ["Start", "Next", "End"];
-  const ids: string[] = [];
-  steps.forEach((label, i) => {
-    const col = i % 3;
-    const row = Math.floor(i / 3);
-    const x = 40 + col * 220;
-    const y = 112 + row * 160;
-    const isEnd = i === 0 || i === steps.length - 1;
-    const el = s.addElement(
-      {
-        kind: isEnd ? "ellipse" : "rectangle",
-        x,
-        y,
-        width: isEnd ? 148 : 160,
-        height: isEnd ? 80 : 68,
-        text: label,
-        fill: i === 0 ? "#5a9e86" : i === steps.length - 1 ? "#c46b5d" : "#5b7fb5",
-        stroke: i === 0 ? "#3f7a66" : i === steps.length - 1 ? "#9a5248" : "#3f5d88",
-        fontSize: 14,
-      },
-      "agent"
-    );
-    ids.push(el.id);
-  });
-  for (let i = 0; i < ids.length - 1; i++) {
-    s.connect(ids[i], ids[i + 1], i === ids.length - 2 ? "done" : "next", "agent");
-  }
-  s.select(null, "agent");
-  return ids;
+    if (s.elements.length || s.connectors.length || s.pins.length) {
+      s.clearAll("agent");
+    }
+    s.resetView();
+    const ids = sketchFromBrief(brief, s);
+    s.select(null, "agent");
+    return ids;
   } finally {
     s.endAgentBatch();
   }
 }
 
-/** Tools that read and write the same canvas store as the UI. Agent calls are tagged actor: "agent". */
 function toolDefinitions(): ToolDefinition[] {
   return [
     {
@@ -218,6 +176,7 @@ function toolDefinitions(): ToolDefinition[] {
         return ok(
           JSON.stringify(
             {
+              app: "CoCanvas. Your brief. Your board. Your agent.",
               brief: clip(s.brief, 160),
               totalElements: s.elements.length,
               countsByKind: counts,
@@ -272,7 +231,7 @@ function toolDefinitions(): ToolDefinition[] {
       name: "review_canvas",
       title: "Review the board against the brief",
       description:
-        "Run the page's own design review. Returns structured findings: brief gaps (required terms missing from labels), unlabeled shapes, orphan nodes, missing start or end, overlaps, and open pins. Use this after drafting. Then pin_element on the nodes that need work, or add the missing steps.",
+        "Run the page's own design review. Returns structured findings: brief gaps, a typeset table with no diagram, unlabeled shapes, orphan nodes, missing start or end, side arrows between siblings, arrows on score bars, a stretched hub, overlaps, and open pins. Use this after drafting. Then delete any side_link or score_link arrow, shrink a wide_hub, pin_element on the nodes that need work, or add the missing steps.",
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       inputSchema: { type: "object", properties: {} },
       execute: () => {
@@ -338,14 +297,14 @@ function toolDefinitions(): ToolDefinition[] {
       name: "draft_from_brief",
       title: "Draft a flow from the brief",
       description:
-        "Read the current brief and draft a connected flow from its steps. Call get_brief first if you are unsure it is set. After drafting, call review_canvas and pin any gaps.",
+        "Read the current brief and sketch a connected board from its words. This is a first pass, not a branded template. Prefer composing with add_element when the brief is a specific screen or ranking. Call get_brief first if you are unsure it is set. After drafting, call review_canvas and pin any gaps.",
       inputSchema: { type: "object", properties: {} },
       execute: () => {
         return asAgent(() => {
           const brief = store().brief.trim();
           if (!brief) return ok("Error: no brief. Call set_brief first, or ask the human to write one.");
           const ids = draftFromBrief(brief);
-          return ok(`Drafted a ${ids.length}-step flow from the brief. Ids: ${ids.join(", ")}. Call review_canvas next.`);
+          return ok(`Drafted the board from the brief (${ids.length} nodes). Ids: ${ids.join(", ")}. Call review_canvas next.`);
         });
       },
     },
@@ -411,7 +370,7 @@ function toolDefinitions(): ToolDefinition[] {
       name: "add_element",
       title: "Add an element",
       description:
-        "Add one element to the canvas: 'frame' (artboard/container), 'rectangle' or 'ellipse' (shapes), 'text' (heading/label), or 'sticky' (sticky note). Returns the created element with its new id. Any omitted field uses a sensible default. Leave at least 56px between nodes so connector labels stay in the gap. Keep x roughly 0 to 880 and y roughly 0 to 560 to stay in view.",
+        "Add one element. A finished board is a diagram: nodes (rectangle or ellipse) plus connect_elements. Facts go on nodes. Heading on line one, facts on the next line (WHO GETS IT then a newline then Plus. Pro. Business. Enterprise.). Do not drop kind text on arrows. Leave 32px between nodes. Title can be kind text. A hub ellipse is about 320 by 100. Do not stretch it across the child row. Score bars are charcoal rectangles, height 28. Never connect a bar, a score label, or a number. Always pass fill and stroke; omitted fill becomes a candy blue card. For text, fill is the ink color (#f4f4f5 on dark paper). ASCII labels only. Paper #0a0a0a. Keep x from 40 to 1400 and y from 24 to 1600.",
       inputSchema: {
         type: "object",
         properties: {
@@ -421,9 +380,12 @@ function toolDefinitions(): ToolDefinition[] {
           width: { type: "number", description: "Width in pixels." },
           height: { type: "number", description: "Height in pixels." },
           text: { type: "string", description: "Text content (for text, sticky, frame title)." },
-          fill: { type: "string", description: "Fill color as a hex string, e.g. #6366f1." },
-          stroke: { type: "string", description: "Border color as a hex string." },
-          fontSize: { type: "number", description: "Font size in pixels." },
+          fill: {
+            type: "string",
+            description: "Hex color. Required for a designed board. Text ink on dark paper: #f4f4f5. Rules: #2a2a2e. Bars: #2c2f36. Do not use candy blue or green.",
+          },
+          stroke: { type: "string", description: "Hex border. Match fill for rules and bars. Use transparent for text." },
+          fontSize: { type: "number", description: "Type size. Title 28, row 14, score 20, kicker 12." },
         },
         required: ["kind"],
       },
@@ -470,7 +432,7 @@ function toolDefinitions(): ToolDefinition[] {
       name: "move_element",
       title: "Move an element",
       description:
-        "Move an element to an absolute position (x, y) in canvas pixels. Use list_elements to find ids and current positions. Leave a gap between nodes. Keep x roughly 0 to 880 and y roughly 0 to 560 so the element stays in view.",
+        "Move an element to an absolute position (x, y) in canvas pixels. Use list_elements to find ids and current positions. Leave a 32px gap between nodes. Keep x from 40 to 1400 and y from 24 to 1600. The page zooms; do not stack items to stay in one screen.",
       inputSchema: {
         type: "object",
         properties: {
@@ -565,7 +527,6 @@ function toolDefinitions(): ToolDefinition[] {
       title: "Delete an element",
       description:
         "Delete an element from the canvas by id, along with any connectors and pins attached to it. The page asks the human to confirm before deleting.",
-      annotations: { destructiveHint: true },
       inputSchema: {
         type: "object",
         properties: { id: { type: "string" } },
@@ -610,7 +571,7 @@ function toolDefinitions(): ToolDefinition[] {
       name: "connect_elements",
       title: "Connect two elements",
       description:
-        "Draw a labeled connector/arrow from one element to another. Great for flowcharts and diagrams. Both ids must exist.",
+        "Draw a labeled connector from one topic node to another. On a product map, only hub to child (Capabilities, Who, API, Rollout). Never connect those siblings to each other. Never connect a score bar, score label, or number. Cited scores are a list. A board of only text is a failed board. Both ids must exist.",
       inputSchema: {
         type: "object",
         properties: {
@@ -622,7 +583,14 @@ function toolDefinitions(): ToolDefinition[] {
       },
       execute: (input: { from: string; to: string; label?: string }) => {
         return asAgent(() => {
-          const conn = store().connect(input.from, input.to, input.label ?? "", "agent");
+          const s = store();
+          const from = s.elements.find((e) => e.id === input.from);
+          const to = s.elements.find((e) => e.id === input.to);
+          if (!from || !to) return ok(`Error: one or both ids do not exist (${input.from}, ${input.to}).`);
+          if (from.id === to.id) return ok("Error: cannot connect a node to itself.");
+          const blocked = blockedConnectorReason(from, to, s.elements, s.connectors);
+          if (blocked) return ok(`Error: ${blocked}`);
+          const conn = s.connect(input.from, input.to, input.label ?? "", "agent");
           if (!conn) return ok(`Error: one or both ids do not exist (${input.from}, ${input.to}).`);
           return ok(`Connected ${input.from} to ${input.to}.`);
         });
@@ -667,7 +635,8 @@ function toolDefinitions(): ToolDefinition[] {
     {
       name: "set_background",
       title: "Set background color",
-      description: "Set the canvas background color (hex string, e.g. #0f172a for dark).",
+      description:
+        "Set the canvas paper. Call this first with #0a0a0a for a product map so the void paper reads (the page hides the dot grid on that color). Do not leave the default Night grey. Use a light paper only for a screen mock that should match a live site.",
       inputSchema: {
         type: "object",
         properties: { color: { type: "string", description: "Hex color string." } },
@@ -681,11 +650,24 @@ function toolDefinitions(): ToolDefinition[] {
       },
     },
     {
+      name: "export_png",
+      title: "Export the board as PNG",
+      description:
+        "Download a PNG picture of the live board. Use this when the human wants an image of the current flow.",
+      annotations: { readOnlyHint: true },
+      inputSchema: { type: "object", properties: {} },
+      execute: async () => {
+        if (store().elements.length === 0) return ok("The board is empty. Nothing to export.");
+        const name = await downloadBoardPng(store());
+        store().log("agent", `exported ${name}`);
+        return ok(`Started a download of ${name}.`);
+      },
+    },
+    {
       name: "clear_canvas",
       title: "Clear the canvas",
       description:
         "Remove all elements, connectors, and pins from the canvas to start fresh. The brief stays. The page asks the human to confirm. The human can undo this agent turn.",
-      annotations: { destructiveHint: true },
       inputSchema: { type: "object", properties: {} },
       execute: async () => {
         const current = store();
@@ -704,109 +686,41 @@ function toolDefinitions(): ToolDefinition[] {
         });
       },
     },
-    {
-      name: "create_layout",
-      title: "Create a starter layout",
-      description:
-        "Replace the current board with a starter layout. The brief stays unless the template sets one. Templates: 'login', 'kanban', 'flowchart', 'checkout'. Prefer draft_from_brief when a brief is already set.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          template: {
-            type: "string",
-            enum: ["login", "kanban", "flowchart", "checkout"],
-            description: "Which starter layout to build.",
-          },
-        },
-        required: ["template"],
-      },
-      execute: (input: { template: "login" | "kanban" | "flowchart" | "checkout" }) => {
-        return asAgent(() => {
-          const s = store();
-          s.beginAgentBatch();
-          try {
-          if (s.elements.length || s.connectors.length || s.pins.length) {
-            s.clearAll("agent");
-          }
-          s.resetView();
-          let message: string;
-          switch (input.template) {
-            case "login": {
-              s.setBackground("#12141a", "agent");
-              s.addElement(
-                { kind: "frame", x: 40, y: 48, width: 300, height: 400, text: "Sign in", fill: "#fffcf7", stroke: "#d8d3c8" },
-                "agent"
-              );
-              s.addElement({ kind: "text", x: 68, y: 92, width: 244, height: 32, text: "Welcome back", fill: "#1a1a1e", fontSize: 22 }, "agent");
-              s.addElement({ kind: "rectangle", x: 68, y: 162, width: 244, height: 42, text: "Email", fill: "#f3efe6", stroke: "#d8d3c8", fontSize: 14 }, "agent");
-              s.addElement({ kind: "rectangle", x: 68, y: 216, width: 244, height: 42, text: "Password", fill: "#f3efe6", stroke: "#d8d3c8", fontSize: 14 }, "agent");
-              s.addElement({ kind: "rectangle", x: 68, y: 286, width: 244, height: 46, text: "Continue", fill: "#6d74c9", stroke: "#4f5699", fontSize: 15 }, "agent");
-              s.addElement({ kind: "text", x: 96, y: 354, width: 190, height: 24, text: "Forgot password?", fill: "#6d74c9", fontSize: 13 }, "agent");
-              message = "Built a login screen mockup inside a frame.";
-              break;
-            }
-            case "kanban": {
-              const cols = [
-                { title: "To do", fill: "#f3e4c6", stroke: "#d4b57a" },
-                { title: "In progress", fill: "#d7e0f0", stroke: "#9aa8c4" },
-                { title: "Done", fill: "#d7e6d8", stroke: "#8fad93" },
-              ];
-              cols.forEach((col, i) => {
-                const fx = 24 + i * 200;
-                s.addElement({ kind: "frame", x: fx, y: 48, width: 180, height: 392, text: col.title, fill: "#fffcf7", stroke: "#d8d3c8" }, "agent");
-                s.addElement({ kind: "sticky", x: fx + 16, y: 100, width: 148, height: 86, text: `${col.title} card`, fill: col.fill, stroke: col.stroke, fontSize: 13 }, "agent");
-              });
-              message = "Built a three-column kanban board.";
-              break;
-            }
-            case "flowchart": {
-              s.setBackground(themeBoard(), "agent");
-              s.addElement({ kind: "text", x: 40, y: 32, width: 360, height: 32, text: "User journey", fill: "#1a1a1e", fontSize: 22 }, "agent");
-              const a = s.addElement({ kind: "ellipse", x: 40, y: 128, width: 140, height: 80, text: "Start", fill: "#5a9e86", stroke: "#3f7a66", fontSize: 14 }, "agent");
-              const b = s.addElement({ kind: "rectangle", x: 252, y: 136, width: 160, height: 68, text: "Process", fill: "#5b7fb5", stroke: "#3f5d88", fontSize: 14 }, "agent");
-              const c = s.addElement({ kind: "ellipse", x: 492, y: 128, width: 140, height: 80, text: "End", fill: "#c46b5d", stroke: "#9a5248", fontSize: 14 }, "agent");
-              s.connect(a.id, b.id, "next", "agent");
-              s.connect(b.id, c.id, "done", "agent");
-              message = "Built a start to process to end flowchart with connectors.";
-              break;
-            }
-            case "checkout": {
-              s.setBackground(themeBoard(), "agent");
-              if (!s.brief.trim()) s.setBrief(SAMPLE_BRIEF, "agent");
-              s.addElement({ kind: "text", x: 40, y: 32, width: 520, height: 32, text: "Grocery checkout", fill: "#1a1a1e", fontSize: 22 }, "agent");
-              const cart = s.addElement({ kind: "ellipse", x: 40, y: 128, width: 140, height: 80, text: "Cart review", fill: "#5a9e86", stroke: "#3f7a66", fontSize: 14 }, "agent");
-              const addr = s.addElement({ kind: "rectangle", x: 236, y: 136, width: 168, height: 68, text: "Delivery address", fill: "#5b7fb5", stroke: "#3f5d88", fontSize: 14 }, "agent");
-              const pay = s.addElement({ kind: "rectangle", x: 460, y: 136, width: 140, height: 68, text: "Payment", fill: "#8b7cc4", stroke: "#6a5d99", fontSize: 14 }, "agent");
-              const done = s.addElement({ kind: "ellipse", x: 656, y: 128, width: 148, height: 80, text: "Order success", fill: "#c46b5d", stroke: "#9a5248", fontSize: 14 }, "agent");
-              s.connect(cart.id, addr.id, "next", "agent");
-              s.connect(addr.id, pay.id, "next", "agent");
-              s.connect(pay.id, done.id, "pay", "agent");
-              message = "Built a four-step grocery checkout that matches the sample brief.";
-              break;
-            }
-            default:
-              return ok("Error: unknown template.");
-          }
-          s.select(null, "agent");
-          return ok(message);
-          } finally {
-            s.endAgentBatch();
-          }
-        });
-      },
-    },
   ];
 }
 
 const controllers = new Map<string, AbortController>();
 let started = false;
 let lastGate = "";
+let nativeCtx: ModelContextLike | null = null;
+let nativeAbort: AbortController | null = null;
+let watchStarted = false;
+const listeners = new Set<(info: RegistrationInfo) => void>();
 
 function prepare(def: ToolDefinition): ToolDefinition {
   return {
     ...def,
     inputSchema: freezeSchema(def.inputSchema),
   };
+}
+
+function availableNames() {
+  return toolDefinitions()
+    .filter((d) => isAvailable(d.name, store()))
+    .map((d) => d.name);
+}
+
+function snapshot(): RegistrationInfo {
+  return {
+    modelContext: createPageModelContext(),
+    polyfilled: !nativeCtx,
+    toolNames: availableNames(),
+  };
+}
+
+function notify() {
+  const info = snapshot();
+  for (const cb of listeners) cb(info);
 }
 
 function syncTools(modelContext: ModelContextLike) {
@@ -841,32 +755,91 @@ function syncTools(modelContext: ModelContextLike) {
   }
 }
 
+function syncNative(native: ModelContextLike) {
+  nativeAbort?.abort();
+  nativeAbort = new AbortController();
+  const { signal } = nativeAbort;
+  const s = store();
+  for (const def of toolDefinitions()) {
+    if (!isAvailable(def.name, s)) continue;
+    try {
+      const pending = native.registerTool(prepare(def), { signal });
+      if (pending && typeof pending.then === "function") {
+        pending.catch(() => undefined);
+      }
+    } catch {
+      // Host rejected this tool; the rest still register.
+    }
+  }
+}
+
+function bindNative(): boolean {
+  const native = detectNativeModelContext();
+  if (!native || native === nativeCtx) return Boolean(nativeCtx);
+  nativeCtx = native;
+  syncNative(native);
+  notify();
+  return true;
+}
+
+function startLateBindWatch() {
+  if (watchStarted || nativeCtx) return;
+  watchStarted = true;
+
+  const tryBind = () => {
+    if (nativeCtx) return;
+    bindNative();
+    if (nativeCtx) window.clearInterval(id);
+  };
+
+  const id = window.setInterval(tryBind, 500);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) tryBind();
+  });
+}
+
 export interface RegistrationInfo {
   modelContext: ModelContextLike;
   polyfilled: boolean;
   toolNames: string[];
 }
 
-/** Registers the CoCanvas WebMCP tool surface and keeps it in sync with board state. */
+function installToolsHook(modelContext: ModelContextLike) {
+  window.__cocanvasTools = {
+    list: () => availableNames(),
+    execute: async (name, input) => resultToText(await modelContext.executeTool(name, input)),
+  };
+}
+
+export function refreshNativeBinding(): boolean {
+  return bindNative();
+}
+
+export function subscribeRegistration(cb: (info: RegistrationInfo) => void) {
+  listeners.add(cb);
+  return () => {
+    listeners.delete(cb);
+  };
+}
+
 export function registerCoCanvasTools(): RegistrationInfo {
-  const { modelContext, polyfilled } = ensureModelContext();
+  const page = createPageModelContext();
+  installToolsHook(page);
 
   if (!started) {
     started = true;
-    syncTools(modelContext);
+    syncTools(page);
     useCanvasStore.subscribe((s, prev) => {
       if (gateKey(s) === gateKey(prev)) return;
-      syncTools(modelContext);
+      lastGate = "";
+      syncTools(page);
+      if (nativeCtx) syncNative(nativeCtx);
     });
+    bindNative();
+    if (!nativeCtx && import.meta.env.MODE !== "test") startLateBindWatch();
   }
 
-  return {
-    modelContext,
-    polyfilled,
-    toolNames: toolDefinitions()
-      .filter((d) => isAvailable(d.name, store()))
-      .map((d) => d.name),
-  };
+  return snapshot();
 }
 
 export { resultToText };

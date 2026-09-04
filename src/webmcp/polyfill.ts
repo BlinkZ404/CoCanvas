@@ -1,9 +1,10 @@
 /**
- * WebMCP polyfill for `document.modelContext`.
+ * Page-owned WebMCP context plus native detection.
  *
  * Native support is limited (ChatGPT's in-app browser, Chrome 149+ with
- * `chrome://flags/#enable-webmcp-testing`). When that API is missing, this
- * module installs a compatible implementation so page tools still run.
+ * `chrome://flags/#enable-webmcp-testing`). The page keeps a private polyfill
+ * for the Agent panel and DevTools hook. It does not occupy
+ * `document.modelContext`, so a host can still inject.
  *
  * Spec: https://webmachinelearning.github.io/webmcp/
  */
@@ -18,7 +19,7 @@ export interface JSONSchema {
 export interface ToolAnnotations {
   readOnlyHint?: boolean;
   untrustedContentHint?: boolean;
-  [key: string]: unknown;
+  consequentialHint?: boolean;
 }
 
 export type ToolResult =
@@ -140,34 +141,45 @@ export interface EnsureResult {
   polyfilled: boolean;
 }
 
-/**
- * Returns the active model context, installing the polyfill on `document` when
- * no native implementation is available. Prefers `document.modelContext`, then
- * the deprecated `navigator.modelContext`.
- */
-export function ensureModelContext(): EnsureResult {
-  const doc = document as unknown as { modelContext?: ModelContextLike };
-  const nav = navigator as unknown as { modelContext?: ModelContextLike };
+let pageContext: PolyfillModelContext | null = null;
 
-  const native = doc.modelContext ?? nav.modelContext;
-  if (native && typeof native.registerTool === "function") {
-    return { modelContext: native, polyfilled: Boolean(native.__isPolyfill) };
-  }
-
-  const polyfill = new PolyfillModelContext();
-  try {
-    Object.defineProperty(document, "modelContext", {
-      value: polyfill,
-      configurable: true,
-      writable: false,
-    });
-  } catch {
-    (doc as { modelContext?: ModelContextLike }).modelContext = polyfill;
-  }
-  return { modelContext: polyfill, polyfilled: true };
+function isHostContext(value: unknown): value is ModelContextLike {
+  if (!value || typeof value !== "object") return false;
+  const ctx = value as ModelContextLike;
+  return typeof ctx.registerTool === "function" && !ctx.__isPolyfill;
 }
 
-/** Normalize any tool result into a plain string for display. */
+/** Private polyfill for in-page tools. Not attached to `document.modelContext`. */
+export function createPageModelContext(): ModelContextLike {
+  if (!pageContext) pageContext = new PolyfillModelContext();
+  return pageContext;
+}
+
+/**
+ * Native host context if the page has one. Prefers `document.modelContext`,
+ * then `navigator.modelContext`, then `window.modelContext`. Skips the
+ * page polyfill so a late-injected host can still win.
+ */
+export function detectNativeModelContext(): ModelContextLike | undefined {
+  const doc = document as unknown as { modelContext?: ModelContextLike };
+  const nav = navigator as unknown as { modelContext?: ModelContextLike };
+  const win = window as unknown as { modelContext?: ModelContextLike };
+  if (isHostContext(doc.modelContext)) return doc.modelContext;
+  if (isHostContext(nav.modelContext)) return nav.modelContext;
+  if (isHostContext(win.modelContext)) return win.modelContext;
+  return undefined;
+}
+
+/**
+ * Returns the native host context when present, otherwise the private page
+ * polyfill. Does not write to `document.modelContext`.
+ */
+export function ensureModelContext(): EnsureResult {
+  const native = detectNativeModelContext();
+  if (native) return { modelContext: native, polyfilled: false };
+  return { modelContext: createPageModelContext(), polyfilled: true };
+}
+
 export function resultToText(result: ToolResult): string {
   if (typeof result === "string") return result;
   if (result && Array.isArray(result.content)) {

@@ -9,11 +9,12 @@ describe("resultToText", () => {
 });
 
 describe("ensureModelContext", () => {
-  it("installs a polyfill and can register plus execute a tool", async () => {
+  it("keeps a private polyfill and can register plus execute a tool", async () => {
     delete (document as unknown as { modelContext?: ModelContextLike }).modelContext;
     const { modelContext, polyfilled } = ensureModelContext();
     expect(polyfilled).toBe(true);
     expect(modelContext.__isPolyfill).toBe(true);
+    expect((document as unknown as { modelContext?: ModelContextLike }).modelContext).toBeUndefined();
 
     await modelContext.registerTool({
       name: "echo",
@@ -25,6 +26,19 @@ describe("ensureModelContext", () => {
     await expect(modelContext.executeTool("echo", { text: "hi" })).resolves.toBe("hi");
     await expect(modelContext.executeTool("echo", "not-json")).resolves.toBe("");
     await expect(modelContext.executeTool("missing")).rejects.toThrow(/Unknown tool/);
+  });
+
+  it("prefers a native host on window over the page polyfill", () => {
+    const host = {
+      registerTool: () => undefined,
+      getTools: () => [],
+      executeTool: async () => "",
+    } as unknown as ModelContextLike;
+    (window as unknown as { modelContext?: ModelContextLike }).modelContext = host;
+    const { modelContext, polyfilled } = ensureModelContext();
+    expect(polyfilled).toBe(false);
+    expect(modelContext).toBe(host);
+    delete (window as unknown as { modelContext?: ModelContextLike }).modelContext;
   });
 
   it("rejects a bad tool name", async () => {
