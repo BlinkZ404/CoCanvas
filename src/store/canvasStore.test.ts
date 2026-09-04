@@ -30,6 +30,8 @@ describe("canvasStore", () => {
     expect(el.x).toBeGreaterThanOrEqual(0);
     store().updateElement(el.id, { width: 4 });
     expect(store().elements[0].width).toBe(MIN_NODE_W);
+    const rule = store().addElement({ kind: "rectangle", width: 720, height: 1 }, "human");
+    expect(rule.height).toBe(1);
   });
 
   it("does not checkpoint a missing update or a no-op brief", () => {
@@ -55,6 +57,34 @@ describe("canvasStore", () => {
     expect(snap?.connectors).toEqual([{ id: "c1", from: "a", to: "b", label: "" }]);
     expect(snap?.pins[0]?.id).toBe("p1");
     expect(snap?.selectedId).toBeNull();
+  });
+
+  it("stacks an all-caps heading under the facts", () => {
+    const el = store().addElement(
+      { kind: "rectangle", text: "WHO GETS IT Plus. Pro. Business. Enterprise." },
+      "human"
+    );
+    expect(el.text).toBe("WHO GETS IT\nPlus. Pro. Business. Enterprise.");
+  });
+
+  it("strips em dashes from labels, pins, and briefs", () => {
+    const el = store().addElement({ kind: "text", text: "Astra \u2014 product" }, "human");
+    expect(el.text).toBe("Astra - product");
+    store().updateElement(el.id, { text: "Who \u2014 Plus" }, "human");
+    expect(store().elements[0].text).toBe("Who - Plus");
+    store().setBrief("API \u2014 gpt-6-astra", "human");
+    expect(store().brief).toBe("API - gpt-6-astra");
+    const pin = store().addPin(el.id, "Rollout \u2014 Enterprise", "human");
+    expect(pin?.text).toBe("Rollout - Enterprise");
+    const other = store().addElement({ kind: "rectangle", text: "Who" }, "human");
+    const conn = store().connect(el.id, other.id, "next \u2014 step", "human");
+    expect(conn?.label).toBe("next - step");
+    const snap = sanitizePersisted({
+      elements: [{ kind: "text", text: "Title \u2014 one" }],
+      brief: "Brief \u2014 note",
+    });
+    expect(snap?.elements[0]?.text).toBe("Title - one");
+    expect(snap?.brief).toBe("Brief - note");
   });
 
   it("clamps negative positions", () => {
@@ -141,6 +171,22 @@ describe("canvasStore", () => {
     store().armConnect();
     store().cancelConnect();
     expect(store().connectArmed).toBe(false);
+  });
+
+  it("shift-selects several nodes and deletes them in one step", () => {
+    const a = store().addElement({ kind: "rectangle", text: "A" }, "human");
+    const b = store().addElement({ kind: "ellipse", text: "B" }, "human");
+    const c = store().addElement({ kind: "text", text: "C" }, "human");
+    store().select(a.id, "human");
+    store().select(b.id, "human", { additive: true });
+    expect(store().selectedIds).toEqual([a.id, b.id]);
+    store().select(b.id, "human", { additive: true });
+    expect(store().selectedIds).toEqual([a.id]);
+    store().selectMany([a.id, c.id]);
+    expect(store().selectedId).toBe(c.id);
+    expect(store().deleteElements([a.id, c.id], "human")).toBe(2);
+    expect(store().elements.map((e) => e.id)).toEqual([b.id]);
+    expect(store().selectedIds).toEqual([]);
   });
 
   it("clears the board but keeps the brief", () => {

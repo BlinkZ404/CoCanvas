@@ -1,7 +1,9 @@
 import { create } from "zustand";
 import {
+  boardCopy,
   elementName,
   itemName,
+  plainCopy,
   type AlignEdge,
   type LayerAction,
 } from "../labels";
@@ -120,7 +122,9 @@ function clampW(n: unknown, fallback = MIN_NODE_W) {
 }
 
 function clampH(n: unknown, fallback = MIN_NODE_H) {
-  return Math.max(MIN_NODE_H, Math.round(finite(n, fallback)));
+  const value = Math.round(finite(n, fallback));
+  if (value > 0 && value <= 4) return value;
+  return Math.max(MIN_NODE_H, value);
 }
 
 function clampFont(n: unknown, fallback = 14) {
@@ -158,6 +162,7 @@ export interface CanvasState {
   elements: CanvasElement[];
   connectors: Connector[];
   selectedId: string | null;
+  selectedIds: string[];
   background: string;
   activity: Activity[];
   brief: string;
@@ -207,6 +212,7 @@ export interface CanvasState {
     opts?: { log?: boolean; undo?: boolean }
   ) => CanvasElement | null;
   deleteElement: (id: string, actor?: Activity["actor"]) => boolean;
+  deleteElements: (ids: string[], actor?: Activity["actor"]) => number;
   deleteConnector: (id: string, actor?: Activity["actor"]) => boolean;
   updateConnector: (
     id: string,
@@ -215,7 +221,8 @@ export interface CanvasState {
     opts?: { log?: boolean; undo?: boolean }
   ) => Connector | null;
   reverseConnector: (id: string, actor?: Activity["actor"]) => Connector | null;
-  select: (id: string | null, actor?: Activity["actor"]) => void;
+  select: (id: string | null, actor?: Activity["actor"], opts?: { additive?: boolean }) => void;
+  selectMany: (ids: string[]) => void;
   setBackground: (
     color: string,
     actor?: Activity["actor"],
@@ -299,11 +306,22 @@ function afterMutate() {
   if (!holdGesture) shotThisGesture = false;
 }
 
+function only(id: string | null) {
+  return { selectedId: id, selectedIds: id ? [id] : [] };
+}
+
+function dropSelected(s: { selectedId: string | null; selectedIds: string[] }, gone: Set<string>) {
+  const selectedIds = s.selectedIds.filter((id) => !gone.has(id));
+  const selectedId =
+    s.selectedId && !gone.has(s.selectedId) ? s.selectedId : (selectedIds[selectedIds.length - 1] ?? null);
+  return { selectedId, selectedIds };
+}
+
 function applySnap(set: (partial: Partial<CanvasState>) => void, snap: Snapshot) {
   set({
     elements: snap.elements,
     connectors: snap.connectors,
-    selectedId: snap.selectedId,
+    ...only(snap.selectedId),
     background: snap.background,
     brief: snap.brief,
     pins: snap.pins,
@@ -330,7 +348,7 @@ function sanitizeElement(raw: unknown, index: number): CanvasElement | null {
     y: clampPos(e.y, base.y),
     width: clampW(e.width, base.width),
     height: clampH(e.height, base.height),
-    text: typeof e.text === "string" ? e.text : base.text,
+    text: boardCopy(typeof e.text === "string" ? e.text : base.text),
     fill: typeof e.fill === "string" ? e.fill : base.fill,
     stroke: typeof e.stroke === "string" ? e.stroke : base.stroke,
     fontSize: clampFont(e.fontSize, base.fontSize),
@@ -343,7 +361,7 @@ function sanitizeConnector(raw: unknown): Connector | null {
   const c = raw as Partial<Connector>;
   if (typeof c.id !== "string" || !c.id.trim()) return null;
   if (typeof c.from !== "string" || typeof c.to !== "string") return null;
-  return { id: c.id, from: c.from, to: c.to, label: typeof c.label === "string" ? c.label : "" };
+  return { id: c.id, from: c.from, to: c.to, label: plainCopy(typeof c.label === "string" ? c.label : "") };
 }
 
 function sanitizePin(raw: unknown): Pin | null {
@@ -356,7 +374,7 @@ function sanitizePin(raw: unknown): Pin | null {
     id: p.id,
     elementId: p.elementId,
     actor,
-    text: typeof p.text === "string" ? p.text : "Look here",
+    text: plainCopy(typeof p.text === "string" ? p.text : "Look here"),
     resolved: Boolean(p.resolved),
   };
 }
@@ -382,7 +400,7 @@ export function sanitizePersisted(data: unknown): Snapshot | null {
   const selectedId =
     typeof raw.selectedId === "string" && ids.has(raw.selectedId) ? raw.selectedId : null;
   const background = typeof raw.background === "string" && raw.background.trim() ? raw.background : LIGHT_BOARD;
-  const brief = typeof raw.brief === "string" ? raw.brief : "";
+  const brief = typeof raw.brief === "string" ? plainCopy(raw.brief) : "";
   return { elements, connectors, selectedId, background, brief, pins };
 }
 
@@ -413,6 +431,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   elements: persisted?.elements ?? [],
   connectors: persisted?.connectors ?? [],
   selectedId: persisted?.selectedId ?? null,
+  selectedIds: persisted?.selectedId ? [persisted.selectedId] : [],
   background: persisted?.background ?? LIGHT_BOARD,
   activity: [],
   brief: persisted?.brief ?? "",
@@ -489,7 +508,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       y: clampPos(partial.y ?? base.y + (n % 6) * 18, base.y),
       width: clampW(partial.width, base.width),
       height: clampH(partial.height, base.height),
-      text: typeof partial.text === "string" ? partial.text : base.text,
+      text: boardCopy(typeof partial.text === "string" ? partial.text : base.text),
       fill: typeof partial.fill === "string" ? partial.fill : base.fill,
       stroke: typeof partial.stroke === "string" ? partial.stroke : base.stroke,
       fontSize: clampFont(partial.fontSize, base.fontSize),
@@ -499,7 +518,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }
     set((s) => ({
       elements: [...s.elements, el],
-      selectedId: el.id,
+      ...only(el.id),
       ...hist(),
     }));
     if (opts?.log !== false) {
@@ -522,7 +541,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       width: patch.width != null ? clampW(patch.width, current.width) : current.width,
       height: patch.height != null ? clampH(patch.height, current.height) : current.height,
       fontSize: patch.fontSize != null ? clampFont(patch.fontSize, current.fontSize) : current.fontSize,
-      text: patch.text != null ? String(patch.text) : current.text,
+      text: patch.text != null ? boardCopy(String(patch.text)) : current.text,
       fill: patch.fill != null ? String(patch.fill) : current.fill,
       stroke: patch.stroke != null ? String(patch.stroke) : current.stroke,
       z: patch.z != null ? Math.round(finite(patch.z, current.z)) : current.z,
@@ -552,7 +571,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return get().elements.find((e) => e.id === id) ?? null;
     }
     remember(get);
-    set({ elements: next, selectedId: id, ...hist() });
+    set({ elements: next, ...only(id), ...hist() });
     get().log(actor, LAYER_LOG[action](label));
     afterMutate();
     return get().elements.find((e) => e.id === id) ?? null;
@@ -617,27 +636,29 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     );
   },
 
-  deleteElement: (id, actor = "human") => {
-    const exists = get().elements.some((e) => e.id === id);
-    if (!exists) return false;
-    const label = itemName(get(), id);
+  deleteElement: (id, actor = "human") => get().deleteElements([id], actor) > 0,
+
+  deleteElements: (ids, actor = "human") => {
+    const gone = new Set(ids.filter((id) => get().elements.some((e) => e.id === id)));
+    if (gone.size === 0) return 0;
+    const labels = [...gone].map((id) => itemName(get(), id));
     remember(get);
     set((s) => {
-      const elements = s.elements.filter((e) => e.id !== id);
+      const elements = s.elements.filter((e) => !gone.has(e.id));
       const connecting = s.connectArmed && elements.length >= 2;
       return {
         elements,
-        connectors: s.connectors.filter((c) => c.from !== id && c.to !== id),
-        pins: s.pins.filter((p) => p.elementId !== id),
-        selectedId: s.selectedId === id ? null : s.selectedId,
+        connectors: s.connectors.filter((c) => !gone.has(c.from) && !gone.has(c.to)),
+        pins: s.pins.filter((p) => !gone.has(p.elementId)),
+        ...dropSelected(s, gone),
         connectArmed: connecting,
-        connectFromId: connecting && s.connectFromId !== id ? s.connectFromId : null,
+        connectFromId: connecting && s.connectFromId && !gone.has(s.connectFromId) ? s.connectFromId : null,
         ...hist(),
       };
     });
-    get().log(actor, `deleted ${label}`);
+    get().log(actor, gone.size === 1 ? `deleted ${labels[0]}` : `deleted ${gone.size} nodes`);
     afterMutate();
-    return true;
+    return gone.size;
   },
 
   deleteConnector: (id, actor = "human") => {
@@ -645,7 +666,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     remember(get);
     set((s) => ({
       connectors: s.connectors.filter((c) => c.id !== id),
-      selectedId: s.selectedId === id ? null : s.selectedId,
+      ...dropSelected(s, new Set([id])),
       ...hist(),
     }));
     get().log(actor, "removed a connector");
@@ -662,6 +683,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       id: current.id,
       from: current.from,
       to: current.to,
+      label: patch.label != null ? plainCopy(String(patch.label)) : current.label,
     };
     if (updated.label === current.label) return current;
     remember(get, opts);
@@ -691,7 +713,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             updated = { ...c, from: c.to, to: c.from };
             return updated;
           }),
-        selectedId: id,
+        ...only(id),
         ...hist(),
       };
     });
@@ -705,9 +727,29 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return updated;
   },
 
-  select: (id, actor = "human") => {
-    set({ selectedId: id });
-    if (id && actor === "agent") get().log(actor, `selected ${itemName(get(), id)}`);
+  select: (id, actor = "human", opts) => {
+    if (!id) {
+      set(only(null));
+      return;
+    }
+    const isNode = get().elements.some((e) => e.id === id);
+    const isConn = get().connectors.some((c) => c.id === id);
+    if (!isNode && !isConn) return;
+    if (opts?.additive && isNode) {
+      const nodes = new Set(get().elements.map((e) => e.id));
+      const current = get().selectedIds.filter((sid) => nodes.has(sid));
+      const next = current.includes(id) ? current.filter((sid) => sid !== id) : [...current, id];
+      set({ selectedId: next[next.length - 1] ?? null, selectedIds: next });
+    } else {
+      set(only(id));
+    }
+    if (actor === "agent") get().log(actor, `selected ${itemName(get(), id)}`);
+  },
+
+  selectMany: (ids) => {
+    const nodes = new Set(get().elements.map((e) => e.id));
+    const selectedIds = [...new Set(ids)].filter((id) => nodes.has(id));
+    set({ selectedId: selectedIds[selectedIds.length - 1] ?? null, selectedIds });
   },
 
   setBackground: (color, actor = "human", opts) => {
@@ -730,7 +772,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return existing;
     }
     remember(get);
-    const connector: Connector = { id: nextId("conn"), from, to, label };
+    const connector: Connector = { id: nextId("conn"), from, to, label: plainCopy(label) };
     set((s) => ({ connectors: [...s.connectors, connector], ...hist() }));
     get().log(actor, `connected ${itemName(get(), from)} to ${itemName(get(), to)}`);
     afterMutate();
@@ -756,7 +798,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const s = get();
     if (!s.connectArmed || !s.elements.some((e) => e.id === id)) return;
     if (!s.connectFromId) {
-      set({ connectFromId: id, selectedId: id });
+      set({ connectFromId: id, ...only(id) });
       return;
     }
     if (s.connectFromId === id) return;
@@ -770,7 +812,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       elements: [],
       connectors: [],
       pins: [],
-      selectedId: null,
+      ...only(null),
       connectArmed: false,
       connectFromId: null,
       resetViewNonce: s.resetViewNonce + 1,
@@ -807,11 +849,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   setBrief: (brief, actor = "human", opts) => {
-    if (get().brief === brief) return;
+    const next = plainCopy(brief);
+    if (get().brief === next) return;
     remember(get, opts);
-    set({ brief, ...hist() });
+    set({ brief: next, ...hist() });
     if (opts?.log !== false) {
-      get().log(actor, brief.trim() ? "updated the brief" : "cleared the brief");
+      get().log(actor, next.trim() ? "updated the brief" : "cleared the brief");
     }
     afterMutate();
   },
@@ -823,10 +866,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       id: nextId("pin"),
       elementId,
       actor,
-      text: text.trim() || "Look here",
+      text: plainCopy(text).trim() || "Look here",
       resolved: false,
     };
-    set((s) => ({ pins: [...s.pins, pin], selectedId: elementId, ...hist() }));
+    set((s) => ({ pins: [...s.pins, pin], ...only(elementId), ...hist() }));
     get().log(actor, `pinned ${itemName(get(), elementId)}`);
     afterMutate();
     return pin;
@@ -856,6 +899,7 @@ export function resetCanvasStore() {
     elements: [],
     connectors: [],
     selectedId: null,
+    selectedIds: [],
     background: LIGHT_BOARD,
     activity: [],
     brief: "",

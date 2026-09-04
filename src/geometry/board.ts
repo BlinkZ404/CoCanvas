@@ -38,6 +38,13 @@ export function resizeByHandle(
   };
 }
 
+export function boxesOverlap(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number }
+) {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
 export function boardExtent(elements: Array<{ x: number; y: number; width: number; height: number }>) {
   let width = 0;
   let height = 0;

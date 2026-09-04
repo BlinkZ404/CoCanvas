@@ -56,4 +56,14 @@ describe("boardPointFromClient", () => {
     } as HTMLElement;
     expect(boardPointFromClient(surface, 200, 150)).toEqual({ x: 140, y: 120 });
   });
+
+  it("divides by the surface zoom", () => {
+    const surface = {
+      getBoundingClientRect: () => ({ left: 100, top: 50 }),
+      scrollLeft: 40,
+      scrollTop: 20,
+      dataset: { zoom: "2" },
+    } as unknown as HTMLElement;
+    expect(boardPointFromClient(surface, 200, 150)).toEqual({ x: 70, y: 60 });
+  });
 });

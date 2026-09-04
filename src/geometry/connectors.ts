@@ -13,6 +13,11 @@ export interface ConnectorLayout {
   length: number;
 }
 
+export function connectorLabelBox(label: string, geo: Pick<ConnectorLayout, "labelX" | "labelY">) {
+  const width = Math.max(32, label.length * 7.2 + 16);
+  return { x: geo.labelX - width / 2, y: geo.labelY - 11, width, height: 18 };
+}
+
 function center(el: CanvasElement): Pt {
   return { x: el.x + el.width / 2, y: el.y + el.height / 2 };
 }
@@ -23,6 +28,10 @@ function clamp(n: number, lo: number, hi: number) {
 }
 
 function facing(from: CanvasElement, to: CanvasElement): [Side, Side] {
+  const stackedBelow = to.y >= from.y + from.height - 4;
+  const stackedAbove = from.y >= to.y + to.height - 4;
+  if (stackedBelow) return ["s", "n"];
+  if (stackedAbove) return ["n", "s"];
   const a = center(from);
   const b = center(to);
   const dx = b.x - a.x;
@@ -106,6 +115,11 @@ function lengthOf(pts: Pt[]) {
   return n;
 }
 
+function laidOut(pts: Pt[], dx: number, dy: number): ConnectorLayout {
+  const mid = longestMid(pts);
+  return { d: polyline(pts), labelX: mid.x + dx, labelY: mid.y + dy, length: lengthOf(pts) };
+}
+
 /** Straight edge when nodes share a band; otherwise an orthogonal elbow. */
 export function connectorLayout(from: CanvasElement, to: CanvasElement): ConnectorLayout {
   const [fromSide, toSide] = facing(from, to);
@@ -119,37 +133,25 @@ export function connectorLayout(from: CanvasElement, to: CanvasElement): Connect
     const by = band ? ay : clamp(center(to).y, ty0, ty1);
     const a: Pt = { x: portX(from, ay, fromSide as "e" | "w"), y: ay };
     const b: Pt = { x: portX(to, by, toSide as "e" | "w"), y: by };
-    if (band) {
-      const pts = [a, b];
-      const mid = longestMid(pts);
-      return { d: polyline(pts), labelX: mid.x, labelY: mid.y - 12, length: lengthOf(pts) };
-    }
+    if (band) return laidOut([a, b], 0, -12);
     const midX = (a.x + b.x) / 2;
     const out = fromSide === "e" ? Math.max(a.x + STUB, midX) : Math.min(a.x - STUB, midX);
     const inn = toSide === "w" ? Math.min(b.x - STUB, midX) : Math.max(b.x + STUB, midX);
     const spine = (out + inn) / 2;
-    const pts = [a, { x: spine, y: a.y }, { x: spine, y: b.y }, b];
-    const mid = longestMid(pts);
-    return { d: polyline(pts), labelX: mid.x, labelY: mid.y - 12, length: lengthOf(pts) };
+    return laidOut([a, { x: spine, y: a.y }, { x: spine, y: b.y }, b], 0, -12);
   }
 
   const [fx0, fx1] = rangeX(from);
   const [tx0, tx1] = rangeX(to);
   const band = overlap(fx0, fx1, tx0, tx1);
-  const ax = band ? (band[0] + band[1]) / 2 : clamp(center(from).x, fx0, fx1);
+  const ax = band ? (band[0] + band[1]) / 2 : clamp(center(to).x, fx0, fx1);
   const bx = band ? ax : clamp(center(to).x, tx0, tx1);
   const a: Pt = { x: ax, y: portY(from, ax, fromSide as "n" | "s") };
   const b: Pt = { x: bx, y: portY(to, bx, toSide as "n" | "s") };
-  if (band) {
-    const pts = [a, b];
-    const mid = longestMid(pts);
-    return { d: polyline(pts), labelX: mid.x + 12, labelY: mid.y, length: lengthOf(pts) };
-  }
+  if (band) return laidOut([a, b], 12, 0);
   const midY = (a.y + b.y) / 2;
   const out = fromSide === "s" ? Math.max(a.y + STUB, midY) : Math.min(a.y - STUB, midY);
   const inn = toSide === "n" ? Math.min(b.y - STUB, midY) : Math.max(b.y + STUB, midY);
   const spine = (out + inn) / 2;
-  const pts = [a, { x: a.x, y: spine }, { x: b.x, y: spine }, b];
-  const mid = longestMid(pts);
-  return { d: polyline(pts), labelX: mid.x, labelY: mid.y - 12, length: lengthOf(pts) };
+  return laidOut([a, { x: a.x, y: spine }, { x: b.x, y: spine }, b], 0, -12);
 }

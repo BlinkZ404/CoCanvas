@@ -11,8 +11,46 @@ export const KIND_LABEL: Record<ElementKind, string> = {
 export type LayerAction = "front" | "back" | "forward" | "backward";
 export type AlignEdge = "left" | "center" | "right" | "top" | "middle" | "bottom";
 
+/** ASCII copy. No em dash, en dash, or curly quotes. */
+export function plainCopy(text: string): string {
+  return text
+    .replace(/[\u2012\u2013\u2014\u2015]/g, "-")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u2026/g, "...");
+}
+
+function isKicker(word: string): boolean {
+  const bare = word.replace(/[.:]+$/g, "");
+  return /^[A-Z][A-Z0-9&/-]{0,20}$/.test(bare);
+}
+
+/** Put an ALL-CAPS heading on its own line. WHO GETS IT / Plus. Pro. */
+export function stackHeading(text: string): string {
+  const t = text.replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").trim();
+  if (!t || t.includes("\n")) return t;
+  const words = t.split(/\s+/);
+  let i = 0;
+  while (i < words.length && i < 4 && isKicker(words[i])) i += 1;
+  if (i === 0 || i === words.length) return t;
+  const detail = words.slice(i).join(" ");
+  if (words.length - i < 2 && !/[.$]/.test(detail)) return t;
+  return `${words.slice(0, i).join(" ")}\n${detail}`;
+}
+
+export function headingLines(text: string): { kicker: string; detail: string } {
+  const stacked = stackHeading(text);
+  const br = stacked.indexOf("\n");
+  if (br < 0) return { kicker: "", detail: stacked };
+  return { kicker: stacked.slice(0, br), detail: stacked.slice(br + 1).trim() };
+}
+
+export function boardCopy(text: string): string {
+  return stackHeading(plainCopy(text));
+}
+
 export function clipLabel(text: string, n = 32): string {
-  const t = text.trim();
+  const t = plainCopy(text).replace(/\s+/g, " ").trim();
   return t.length > n ? `${t.slice(0, n - 1)}...` : t;
 }
 

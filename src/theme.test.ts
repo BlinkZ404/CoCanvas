@@ -7,7 +7,9 @@ import {
   boardForTheme,
   clearAutoBoardFrom,
   inkOnBoard,
+  INK_BOARD,
   isDarkColor,
+  isInkPaper,
   luminance,
   persistThemePref,
   readThemePref,
@@ -21,6 +23,8 @@ describe("luminance and ink", () => {
     expect(isDarkColor(DARK_BOARD)).toBe(true);
     expect(isDarkColor(LIGHT_BOARD)).toBe(false);
     expect(luminance("#ffffff")).toBeGreaterThan(luminance("#000000"));
+    expect(isInkPaper(INK_BOARD)).toBe(true);
+    expect(isInkPaper(DARK_BOARD)).toBe(false);
   });
 
   it("returns a light ink when dark text sits on a dark board", () => {

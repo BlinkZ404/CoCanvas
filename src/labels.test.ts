@@ -1,8 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { clipLabel, connectorName, elementName, itemName, kindWord } from "./labels";
+import { clipLabel, connectorName, elementName, headingLines, itemName, kindWord, plainCopy, stackHeading } from "./labels";
 import { box } from "./test/helpers";
 
 describe("labels", () => {
+  it("strips em dashes and curly quotes", () => {
+    expect(plainCopy("GPT-6 Astra \u2014 product")).toBe("GPT-6 Astra - product");
+    expect(plainCopy("\u201CWho gets it\u201D")).toBe('"Who gets it"');
+  });
+
+  it("puts an all-caps heading on its own line", () => {
+    expect(stackHeading("WHO GETS IT Plus. Pro. Business. Enterprise.")).toBe(
+      "WHO GETS IT\nPlus. Pro. Business. Enterprise."
+    );
+    expect(stackHeading("CAPABILITIES Computer use. Browsing.")).toBe("CAPABILITIES\nComputer use. Browsing.");
+    expect(stackHeading("API gpt-6-astra $10 input.")).toBe("API\ngpt-6-astra $10 input.");
+    expect(stackHeading("Cart review")).toBe("Cart review");
+    expect(stackHeading("GPT-6 Astra")).toBe("GPT-6 Astra");
+    expect(headingLines("WHO GETS IT Plus. Pro.")).toEqual({
+      kicker: "WHO GETS IT",
+      detail: "Plus. Pro.",
+    });
+  });
+
   it("clips long names", () => {
     expect(clipLabel("a".repeat(40)).endsWith("...")).toBe(true);
     expect(clipLabel("Cart")).toBe("Cart");

@@ -1,5 +1,6 @@
 import { useCanvasStore } from "./store/canvasStore";
 import type { ElementKind } from "./types";
+import { surfaceZoom } from "./view";
 
 export const SHAPE_KINDS: ElementKind[] = ["frame", "rectangle", "ellipse", "text", "sticky"];
 
@@ -9,9 +10,10 @@ export function isShapeKind(value: string): value is ElementKind {
 
 export function boardPointFromClient(surface: HTMLElement, clientX: number, clientY: number) {
   const rect = surface.getBoundingClientRect();
+  const zoom = surfaceZoom(surface);
   return {
-    x: clientX - rect.left + surface.scrollLeft,
-    y: clientY - rect.top + surface.scrollTop,
+    x: (clientX - rect.left + surface.scrollLeft) / zoom,
+    y: (clientY - rect.top + surface.scrollTop) / zoom,
   };
 }
 

@@ -41,6 +41,7 @@ export function persistThemePref(pref: ThemePref) {
 
 export const LIGHT_BOARD = "#f6f4ef";
 export const DARK_BOARD = "#1e2128";
+export const INK_BOARD = "#0a0a0a";
 const LIGHT_BOARDS = new Set(["#f6f4ef", "#eef1f6", "#e8eee9"]);
 
 export function stockBoardForTheme(resolved: ResolvedTheme): string {
@@ -84,6 +85,11 @@ export function luminance(hex: string): number {
 
 export function isDarkColor(hex: string): boolean {
   return luminance(hex) < 0.42;
+}
+
+/** Void paper. Hide the dot grid so the background actually reads. */
+export function isInkPaper(hex: string): boolean {
+  return luminance(hex) <= 0.05;
 }
 
 /** Keep free text readable when the board flips with the chrome theme. */

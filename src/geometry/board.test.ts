@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { BOARD_PAD, MIN_NODE_H, MIN_NODE_W, boardExtent, resizeByHandle, scrollBoardFromPointer } from "./board";
+import { BOARD_PAD, MIN_NODE_H, MIN_NODE_W, boardExtent, boxesOverlap, resizeByHandle, scrollBoardFromPointer } from "./board";
 
 describe("boardExtent", () => {
   it("returns null when the board is empty", () => {
@@ -13,6 +13,13 @@ describe("boardExtent", () => {
         { x: 200, y: 80, width: 50, height: 30 },
       ])
     ).toEqual({ width: 250 + BOARD_PAD, height: 110 + BOARD_PAD });
+  });
+});
+
+describe("boxesOverlap", () => {
+  it("detects overlapping boxes and misses a gap", () => {
+    expect(boxesOverlap({ x: 0, y: 0, width: 40, height: 40 }, { x: 20, y: 20, width: 40, height: 40 })).toBe(true);
+    expect(boxesOverlap({ x: 0, y: 0, width: 40, height: 40 }, { x: 50, y: 0, width: 40, height: 40 })).toBe(false);
   });
 });
 
