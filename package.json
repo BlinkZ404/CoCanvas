@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "CoCanvas, a product-flow canvas shared with a WebMCP agent",
+  "description": "Your brief. Your board. Your agent.",
   "scripts": {
     "dev": "vite --host",
     "build": "tsc -b && vite build",
