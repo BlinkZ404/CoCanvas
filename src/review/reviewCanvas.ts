@@ -1,3 +1,5 @@
+import { isDecorShape, rectangleRole } from "../design";
+import { connectorLabelBox, connectorLayout } from "../geometry/connectors";
 import { KIND_LABEL, clipLabel } from "../labels";
 import type { CanvasElement, Connector, Pin } from "../types";
 
@@ -96,11 +98,13 @@ export function briefTerms(brief: string): string[] {
   return unique;
 }
 
-function area(el: CanvasElement) {
+type Box = { x: number; y: number; width: number; height: number };
+
+function area(el: Box) {
   return Math.max(1, el.width * el.height);
 }
 
-function intersection(a: CanvasElement, b: CanvasElement) {
+function intersection(a: Box, b: Box) {
   const x = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
   const y = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
   return x * y;
@@ -118,6 +122,56 @@ function contains(outer: CanvasElement, inner: CanvasElement) {
 function nodeName(el: CanvasElement) {
   const text = el.text.trim();
   return text ? clipLabel(text) : KIND_LABEL[el.kind];
+}
+
+const GRAPH_KINDS = new Set(["rectangle", "ellipse", "sticky"]);
+
+export function isGraphNode(el: CanvasElement): boolean {
+  return GRAPH_KINDS.has(el.kind) && !isDecorShape(el);
+}
+
+export function isNonConnectable(el: CanvasElement): boolean {
+  return el.kind === "text" || el.kind === "frame" || isDecorShape(el);
+}
+
+export function sameBand(a: CanvasElement, b: CanvasElement): boolean {
+  const ay = a.y + a.height / 2;
+  const by = b.y + b.height / 2;
+  return Math.abs(ay - by) <= Math.max(24, Math.min(a.height, b.height) * 0.55);
+}
+
+function linked(connectors: Connector[], a: string, b: string): boolean {
+  return connectors.some((c) => (c.from === a && c.to === b) || (c.from === b && c.to === a));
+}
+
+export function sharedHubAbove(
+  from: CanvasElement,
+  to: CanvasElement,
+  elements: CanvasElement[],
+  connectors: Connector[]
+): boolean {
+  const top = Math.min(from.y, to.y);
+  return elements.some((hub) => {
+    if (hub.id === from.id || hub.id === to.id) return false;
+    if (!isGraphNode(hub)) return false;
+    if (hub.y + hub.height > top - 8) return false;
+    return linked(connectors, hub.id, from.id) && linked(connectors, hub.id, to.id);
+  });
+}
+
+export function blockedConnectorReason(
+  from: CanvasElement,
+  to: CanvasElement,
+  elements: CanvasElement[],
+  connectors: Connector[]
+): string | null {
+  if (isNonConnectable(from) || isNonConnectable(to)) {
+    return "do not connect a score bar, score label, or free text. Arrows go between topic nodes only.";
+  }
+  if (sameBand(from, to) && sharedHubAbove(from, to, elements, connectors)) {
+    return "those two already hang from the hub. Do not add a side arrow. It will look like it goes through the box.";
+  }
+  return null;
 }
 
 function canvasText(elements: CanvasElement[], connectors: Connector[]) {
@@ -140,6 +194,7 @@ export function reviewCanvas(input: ReviewInput): ReviewReport {
     else missing.push(term);
   }
 
+  const byId = new Map(elements.map((el) => [el.id, el]));
   const findings: Finding[] = [];
   let n = 0;
   const add = (severity: FindingSeverity, code: string, message: string, elementIds: string[]) => {
@@ -169,14 +224,15 @@ export function reviewCanvas(input: ReviewInput): ReviewReport {
     );
   }
 
-  const graphKinds = new Set(["rectangle", "ellipse", "sticky"]);
-  const nodes = elements.filter((e) => graphKinds.has(e.kind));
+  const nodes = elements.filter(isGraphNode);
   if (connectors.length > 0 && nodes.length > 0) {
     const degree = new Map<string, { in: number; out: number }>();
     for (const el of nodes) degree.set(el.id, { in: 0, out: 0 });
     for (const c of connectors) {
-      if (degree.has(c.from)) degree.get(c.from)!.out += 1;
-      if (degree.has(c.to)) degree.get(c.to)!.in += 1;
+      const fromDeg = degree.get(c.from);
+      const toDeg = degree.get(c.to);
+      if (fromDeg) fromDeg.out += 1;
+      if (toDeg) toDeg.in += 1;
     }
     const orphans = nodes.filter((el) => {
       const d = degree.get(el.id);
@@ -190,18 +246,52 @@ export function reviewCanvas(input: ReviewInput): ReviewReport {
         orphans.map((e) => e.id)
       );
     }
-    const starts = nodes.filter((el) => degree.get(el.id)!.in === 0 && degree.get(el.id)!.out > 0);
-    const ends = nodes.filter((el) => degree.get(el.id)!.out === 0 && degree.get(el.id)!.in > 0);
+    const starts = nodes.filter((el) => {
+      const d = degree.get(el.id);
+      return Boolean(d && d.in === 0 && d.out > 0);
+    });
+    const ends = nodes.filter((el) => {
+      const d = degree.get(el.id);
+      return Boolean(d && d.out === 0 && d.in > 0);
+    });
     if (starts.length === 0) {
       add("warn", "no_start", "This flow has no start. A node should have outgoing arrows only.", []);
     }
     if (ends.length === 0) {
       add("warn", "no_end", "This flow has no end. A node should have incoming arrows only.", []);
     }
+    for (const el of nodes) {
+      const out = degree.get(el.id)?.out ?? 0;
+      if (out < 3) continue;
+      const pancake = el.width >= 480 || el.width / Math.max(1, el.height) > 4;
+      if (!pancake) continue;
+      const below = nodes.filter(
+        (child) => child.id !== el.id && child.y >= el.y + el.height - 8 && linked(connectors, el.id, child.id)
+      );
+      if (below.length < 3) continue;
+      add(
+        "warn",
+        "wide_hub",
+        "This hub is stretched so the arrows stay vertical. Shrink it to about 320 by 100. The page bends arrows from a compact hub.",
+        [el.id]
+      );
+    }
+  }
+
+  const screenMock = /(log ?in|sign ?in|welcome back|email address|continue with|password)/i.test(
+    `${brief} ${elements.map((e) => e.text).join(" ")}`
+  );
+  if (!screenMock && elements.length >= 3 && connectors.length === 0) {
+    add(
+      "warn",
+      "no_diagram",
+      "This board is type, not a diagram. Add nodes and connect_elements so it reads as a map.",
+      []
+    );
   }
 
   const unlabeled = elements.filter(
-    (e) => (e.kind === "rectangle" || e.kind === "ellipse") && !e.text.trim()
+    (e) => (e.kind === "rectangle" || e.kind === "ellipse") && !e.text.trim() && !isDecorShape(e)
   );
   if (unlabeled.length) {
     add(
@@ -218,13 +308,53 @@ export function reviewCanvas(input: ReviewInput): ReviewReport {
       const b = elements[j];
       if (a.kind === "frame" && contains(a, b)) continue;
       if (b.kind === "frame" && contains(b, a)) continue;
+      const hit = intersection(a, b);
+      if (hit <= 12) continue;
       const smaller = Math.min(area(a), area(b));
-      if (intersection(a, b) / smaller > 0.4) {
+      const textPair = a.kind === "text" || b.kind === "text";
+      if (textPair || hit / smaller > 0.2) {
         add("warn", "overlap", `${nodeName(a)} and ${nodeName(b)} overlap. Separate them so the path stays readable.`, [
           a.id,
           b.id,
         ]);
       }
+    }
+  }
+
+  for (const c of connectors) {
+    const from = byId.get(c.from);
+    const to = byId.get(c.to);
+    if (!from || !to) continue;
+    const blocked = blockedConnectorReason(from, to, elements, connectors);
+    if (blocked) {
+      if (isNonConnectable(from) || isNonConnectable(to)) {
+        add(
+          "warn",
+          "score_link",
+          "Do not connect score bars, score labels, or numbers. Cited scores are a list. Delete this arrow.",
+          [from.id, to.id]
+        );
+      } else {
+        add(
+          "warn",
+          "side_link",
+          "On a product map, only the hub should connect to these nodes. A side arrow looks like it goes through the box. Delete it.",
+          [from.id, to.id]
+        );
+      }
+    }
+    if (!c.label.trim()) continue;
+    const box = connectorLabelBox(c.label, connectorLayout(from, to));
+    for (const el of elements) {
+      if (el.id === c.from || el.id === c.to) continue;
+      if (el.kind === "frame" || rectangleRole(el) === "rule") continue;
+      if (intersection(el, box) <= 12) continue;
+      add(
+        "warn",
+        "overlap",
+        `${nodeName(el)} sits on the "${clipLabel(c.label)}" arrow. Move that type onto a node.`,
+        [el.id]
+      );
     }
   }
 
